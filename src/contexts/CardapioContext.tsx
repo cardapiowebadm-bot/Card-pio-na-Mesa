@@ -35,7 +35,7 @@ interface CardapioContextType {
   startSession: (tableNumber: number, customerOrName: { name: string; phone: string; cpf?: string } | string, phone?: string, cpf?: string) => Promise<void>;
   checkoutCart: (itemsWithNotes?: CartItem[]) => Promise<void>;
   checkCustomerByCpf: (cpf: string) => Promise<{ name: string; phone: string } | null>;
-  addToCart: (product: Product, quantity: number, notes?: string) => void;
+  addToCart: (product: Product, quantity?: number, notes?: string) => void;
   removeFromCart: (productId: string) => void;
   updateCartQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
@@ -320,20 +320,24 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const addToCart = (product: Product, quantity: number, notes?: string) => {
+  const addToCart = (product: Product, quantity?: number, notes?: string) => {
+    if (product.available === false) return;
+    const qty = Math.max(1, typeof quantity === 'number' && !isNaN(quantity) ? quantity : 1);
     setCart((prev) => {
-      const existingIndex = prev.findIndex((item) => item.productId === product.id && item.notes === notes);
+      const existingIndex = prev.findIndex((item) => item.productId === product.id && (item.notes || '') === (notes || ''));
       if (existingIndex > -1) {
         const updated = [...prev];
-        updated[existingIndex].quantity += quantity;
+        const currentQty = Number(updated[existingIndex].quantity) || 0;
+        updated[existingIndex].quantity = currentQty + qty;
         return updated;
       } else {
+        const itemPrice = product.onSale && product.salePrice ? Number(product.salePrice) : Number(product.price);
         return [...prev, {
           productId: product.id,
           name: product.name,
-          price: product.onSale && product.salePrice ? product.salePrice : product.price,
-          quantity,
-          notes,
+          price: isNaN(itemPrice) ? 0 : itemPrice,
+          quantity: qty,
+          notes: notes || '',
           imageUrl: product.imageUrl
         }];
       }
@@ -345,11 +349,12 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const updateCartQuantity = (productId: string, quantity: number) => {
-    if (quantity <= 0) {
+    const qty = typeof quantity === 'number' && !isNaN(quantity) ? quantity : 1;
+    if (qty <= 0) {
       removeFromCart(productId);
       return;
     }
-    setCart((prev) => prev.map((item) => item.productId === productId ? { ...item, quantity } : item));
+    setCart((prev) => prev.map((item) => item.productId === productId ? { ...item, quantity: qty } : item));
   };
 
   const clearCart = () => {
@@ -361,8 +366,8 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setLoading(true);
     try {
-      const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-      const serviceTaxValue = (restaurant.serviceTax / 100) * subtotal;
+      const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
+      const serviceTaxValue = ((restaurant.serviceTax || 10) / 100) * subtotal;
       const total = subtotal + serviceTaxValue;
 
       const orderRef = doc(collection(db, 'orders'));
@@ -375,9 +380,9 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         items: cart.map(item => ({
           productId: item.productId,
           name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          notes: item.notes
+          price: Number(item.price),
+          quantity: Number(item.quantity),
+          notes: item.notes || ''
         })),
         subtotal,
         serviceTax: serviceTaxValue,
@@ -421,7 +426,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setLoading(true);
     try {
-      const subtotal = activeItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+      const subtotal = activeItems.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
       const serviceTaxValue = ((restaurant.serviceTax || 10) / 100) * subtotal;
       const total = subtotal + serviceTaxValue;
 
@@ -435,9 +440,9 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         items: activeItems.map(item => ({
           productId: item.productId,
           name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          notes: item.notes
+          price: Number(item.price),
+          quantity: Number(item.quantity),
+          notes: item.notes || ''
         })),
         subtotal,
         serviceTax: serviceTaxValue,

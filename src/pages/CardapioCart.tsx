@@ -24,8 +24,9 @@ export default function CardapioCart() {
 
   // Totals calculations
   const subtotal = cart.reduce((acc, item) => {
-    const activePrice = item.onSale && item.salePrice ? item.salePrice : item.price;
-    return acc + (activePrice * item.quantity);
+    const priceNum = Number(item.price) || 0;
+    const qtyNum = Number(item.quantity) || 0;
+    return acc + (priceNum * qtyNum);
   }, 0);
 
   const serviceTax = restaurant?.serviceTaxEnabled !== false ? subtotal * 0.10 : 0;
@@ -42,7 +43,7 @@ export default function CardapioCart() {
       // Map notes to cart items for the context
       const cartWithNotes = cart.map(item => ({
         ...item,
-        notes: itemNotes[item.id] || ''
+        notes: itemNotes[item.productId] || ''
       }));
 
       await checkoutCart(cartWithNotes);
@@ -92,9 +93,10 @@ export default function CardapioCart() {
       {/* Cart Items list */}
       <div className="space-y-4">
         {cart.map((item) => {
-          const itemPrice = item.onSale && item.salePrice ? item.salePrice : item.price;
+          const itemPrice = Number(item.price) || 0;
+          const qty = Number(item.quantity) || 1;
           return (
-            <div key={item.id} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-3.5">
+            <div key={item.productId} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-3.5">
               <div className="flex gap-3">
                 <img
                   src={item.imageUrl}
@@ -113,14 +115,14 @@ export default function CardapioCart() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50">
                       <button
-                        onClick={() => updateCartQuantity(item.id, item.quantity - 1)}
+                        onClick={() => updateCartQuantity(item.productId, qty - 1)}
                         className="p-1 text-slate-500 hover:text-slate-800 transition-all"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <span className="text-xs font-bold px-3 text-slate-700">{item.quantity}</span>
+                      <span className="text-xs font-bold px-3 text-slate-700">{qty}</span>
                       <button
-                        onClick={() => updateCartQuantity(item.id, item.quantity + 1)}
+                        onClick={() => updateCartQuantity(item.productId, qty + 1)}
                         className="p-1 text-slate-500 hover:text-slate-800 transition-all"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -128,7 +130,7 @@ export default function CardapioCart() {
                     </div>
 
                     <button
-                      onClick={() => removeFromCart(item.id)}
+                      onClick={() => removeFromCart(item.productId)}
                       className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-slate-50 transition-all"
                       title="Remover"
                     >
@@ -145,8 +147,8 @@ export default function CardapioCart() {
                 </div>
                 <input
                   type="text"
-                  value={itemNotes[item.id] || ''}
-                  onChange={(e) => handleUpdateNotes(item.id, e.target.value)}
+                  value={itemNotes[item.productId] || ''}
+                  onChange={(e) => handleUpdateNotes(item.productId, e.target.value)}
                   placeholder="Alguma observação? (ex: sem cebola, ponto da carne)"
                   className="block w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-[11px] focus:outline-none focus:ring-1 focus:ring-rose-500"
                 />

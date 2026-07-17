@@ -9,12 +9,10 @@ export default function CardapioHome() {
   const [search, setSearch] = useState('');
 
   // Extract featured products
-  const featuredProducts = products.filter(p => p.featured && p.available);
+  const featuredProducts = products.filter(p => p.featured);
 
   // Filtered products list
   const filteredProducts = products.filter(p => {
-    if (!p.available) return false;
-    
     const matchesCategory = selectedCatId === 'all' || p.categoryId === selectedCatId;
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
                           p.description?.toLowerCase().includes(search.toLowerCase());
@@ -23,6 +21,10 @@ export default function CardapioHome() {
   });
 
   const handleAddToCart = (product: any) => {
+    if (product.available === false) {
+      toast.error('Este produto não está disponível no momento.');
+      return;
+    }
     addToCart(product);
     toast.success(`${product.name} adicionado ao carrinho!`, {
       icon: '🛒',
@@ -74,6 +76,13 @@ export default function CardapioHome() {
                       Oferta
                     </span>
                   )}
+                  {prod.available === false && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <span className="bg-red-600 text-white font-extrabold text-[9px] uppercase tracking-wider px-2.5 py-1 rounded-full shadow-sm">
+                        Indisponível
+                      </span>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="p-4 space-y-3">
@@ -93,7 +102,12 @@ export default function CardapioHome() {
 
                     <button
                       onClick={() => handleAddToCart(prod)}
-                      className="bg-rose-600 hover:bg-rose-700 text-white p-1.5 rounded-xl transition-all shadow-sm"
+                      disabled={prod.available === false}
+                      className={`p-1.5 rounded-xl transition-all shadow-sm ${
+                        prod.available === false 
+                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          : 'bg-rose-600 hover:bg-rose-700 text-white'
+                      }`}
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -160,6 +174,13 @@ export default function CardapioHome() {
                       %
                     </span>
                   )}
+                  {prod.available === false && (
+                    <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-1">
+                      <span className="bg-red-600 text-white font-bold text-[7px] uppercase tracking-wider px-1 py-0.5 rounded text-center">
+                        Indisponível
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Details */}
@@ -188,7 +209,12 @@ export default function CardapioHome() {
                       </span>
                       <button
                         onClick={() => handleAddToCart(prod)}
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-1.5 rounded-xl transition-all"
+                        disabled={prod.available === false}
+                        className={`p-1.5 rounded-xl transition-all ${
+                          prod.available === false
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-rose-50 hover:bg-rose-100 text-rose-600'
+                        }`}
                       >
                         <Plus className="w-4 h-4" />
                       </button>

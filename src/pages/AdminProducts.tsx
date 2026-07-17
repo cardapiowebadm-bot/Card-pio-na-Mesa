@@ -657,6 +657,40 @@ export default function AdminProducts() {
                         <p className="text-slate-500 text-xs mt-1 leading-relaxed line-clamp-2">{prod.description || 'Sem descrição cadastrada.'}</p>
                       </div>
 
+                      {/* Switch for Availability */}
+                      <div className="flex items-center justify-between bg-slate-50 px-3.5 py-2 rounded-2xl border border-slate-100/80">
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          Disponibilidade
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider ${prod.available !== false ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            {prod.available !== false ? 'Disponível' : 'Indisponível'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const currentStatus = prod.available !== false;
+                                await updateDoc(doc(db, 'products', prod.id), { available: !currentStatus });
+                                toast.success(!currentStatus ? 'Produto disponível para venda!' : 'Produto indisponível para venda!');
+                              } catch (e) {
+                                console.error(e);
+                                toast.error('Erro ao atualizar disponibilidade');
+                              }
+                            }}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              prod.available !== false ? 'bg-emerald-500' : 'bg-slate-300'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                prod.available !== false ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                         <div>
                           {prod.onSale && prod.salePrice ? (
