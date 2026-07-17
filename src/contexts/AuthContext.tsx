@@ -84,8 +84,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } finally {
+    } catch (err) {
       setLoading(false);
+      throw err;
     }
   };
 

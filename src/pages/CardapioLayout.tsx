@@ -99,41 +99,41 @@ export default function CardapioLayout({ children }: { children: React.ReactNode
       </main>
 
       {/* Persistent Bottom Bar for Mobile-first client */}
-      {activeSession && (
-        <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-100 py-2.5 px-6 shadow-2xl flex items-center justify-around z-40 max-w-lg mx-auto rounded-t-3xl">
-          {navItems.map((item) => {
-            const active = location.pathname === item.to;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`flex flex-col items-center gap-1 text-[11px] font-bold uppercase transition-all ${
-                  active ? 'text-rose-600' : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-100 py-2.5 px-6 shadow-2xl flex items-center justify-around z-40 max-w-lg mx-auto rounded-t-3xl">
+        {navItems.map((item) => {
+          const active = location.pathname === item.to || 
+            (item.to.endsWith('/home') && location.pathname.includes('/home')) || 
+            (item.to.endsWith('/orders') && location.pathname.includes('/orders'));
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`flex flex-col items-center gap-1 text-[11px] font-bold uppercase transition-all ${
+                active ? 'text-rose-600' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
 
-          {/* Cart Icon trigger */}
-          <Link
-            to={`/menu/${restaurantId}/cart`}
-            className={`relative flex flex-col items-center gap-1 text-[11px] font-bold uppercase transition-all ${
-              location.pathname.includes('/cart') ? 'text-rose-600' : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            <ShoppingCart className="w-5 h-5" />
-            <span>Carrinho</span>
-            {cartItemsCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 bg-rose-600 text-white font-bold text-[9px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
-                {cartItemsCount}
-              </span>
-            )}
-          </Link>
-        </nav>
-      )}
+        {/* Cart Icon trigger */}
+        <Link
+          to={`/menu/${restaurantId}/cart`}
+          className={`relative flex flex-col items-center gap-1 text-[11px] font-bold uppercase transition-all ${
+            location.pathname.includes('/cart') ? 'text-rose-600' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <ShoppingCart className="w-5 h-5" />
+          <span>Carrinho</span>
+          {cartItemsCount > 0 && (
+            <span className="absolute -top-1 -right-1.5 bg-rose-600 text-white font-bold text-[9px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
+              {cartItemsCount}
+            </span>
+          )}
+        </Link>
+      </nav>
 
       {/* Call Waiter Modal Selection */}
       {showCallModal && (
