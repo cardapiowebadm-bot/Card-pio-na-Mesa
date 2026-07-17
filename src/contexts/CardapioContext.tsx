@@ -12,6 +12,7 @@ import {
   onSnapshot,
   orderBy
 } from 'firebase/firestore';
+import { useParams } from 'react-router-dom';
 import { db } from '../services/firebase';
 import { Restaurant, Product, Category, TableSession, Order, OrderItem, WaiterCall } from '../types';
 
@@ -24,13 +25,15 @@ interface CardapioContextType {
   products: Product[];
   categories: Category[];
   activeTableSession: TableSession | null;
+  activeSession: TableSession | null;
   cart: CartItem[];
   sessionOrders: Order[];
   activeCalls: WaiterCall[];
   loading: boolean;
   error: string | null;
   loadRestaurantData: (restaurantId: string) => Promise<void>;
-  startSession: (tableNumber: number, customer: { name: string; phone: string; cpf?: string }) => Promise<void>;
+  startSession: (tableNumber: number, customerOrName: { name: string; phone: string; cpf?: string } | string, phone?: string, cpf?: string) => Promise<void>;
+  checkoutCart: (itemsWithNotes?: CartItem[]) => Promise<void>;
   checkCustomerByCpf: (cpf: string) => Promise<{ name: string; phone: string } | null>;
   addToCart: (product: Product, quantity: number, notes?: string) => void;
   removeFromCart: (productId: string) => void;
@@ -53,6 +56,7 @@ export function useCardapio() {
 }
 
 export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { restaurantId } = useParams<{ restaurantId: string }>();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -217,6 +221,13 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Automatically load restaurant data when restaurantId changes
+  useEffect(() => {
+    if (restaurantId && (!restaurant || restaurant.id !== restaurantId)) {
+      loadRestaurantData(restaurantId);
+    }
+  }, [restaurantId, restaurant]);
+
   const checkCustomerByCpf = async (cpf: string) => {
     if (!restaurant) return null;
     const cleanCpf = cpf.replace(/\D/g, '');
@@ -242,9 +253,15 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const startSession = async (
     tableNumber: number, 
-    customer: { name: string; phone: string; cpf?: string }
+    customerOrName: { name: string; phone: string; cpf?: string } | string,
+    phone?: string,
+    cpf?: string
   ) => {
     if (!restaurant) throw new Error('Restaurante não carregado');
+
+    const customer = typeof customerOrName === 'string'
+      ? { name: customerOrName, phone: phone || '', cpf }
+      : customerOrName;
 
     setLoading(true);
     try {
@@ -398,6 +415,66 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const checkoutCart = async (itemsWithNotes?: CartItem[]) => {
+    const activeItems = itemsWithNotes || cart;
+    if (!restaurant || !activeTableSession || activeItems.length === 0) return;
+
+    setLoading(true);
+    try {
+      const subtotal = activeItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+      const serviceTaxValue = ((restaurant.serviceTax || 10) / 100) * subtotal;
+      const total = subtotal + serviceTaxValue;
+
+      const orderRef = doc(collection(db, 'orders'));
+      const newOrder: Order = {
+        id: orderRef.id,
+        tableSessionId: activeTableSession.id,
+        tableId: activeTableSession.tableId,
+        tableNumber: activeTableSession.tableNumber,
+        restaurantId: restaurant.id,
+        items: activeItems.map(item => ({
+          productId: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          notes: item.notes
+        })),
+        subtotal,
+        serviceTax: serviceTaxValue,
+        total,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        customerName: activeTableSession.customerName,
+        customerPhone: activeTableSession.customerPhone
+      };
+
+      await setDoc(orderRef, newOrder);
+
+      // Create notification
+      await addDoc(collection(db, 'notifications'), {
+        restaurantId: restaurant.id,
+        type: 'new_order',
+        message: `Novo pedido de R$ ${total.toFixed(2)} para a Mesa ${activeTableSession.tableNumber}`,
+        status: 'unread',
+        referenceId: orderRef.id,
+        tableNumber: activeTableSession.tableNumber,
+        createdAt: new Date().toISOString()
+      });
+
+      // Update table status to occupied
+      const tableRef = doc(db, 'tables', activeTableSession.tableId);
+      await updateDoc(tableRef, { status: 'occupied' });
+
+      setCart([]);
+    } catch (err) {
+      console.error(err);
+      throw new Error('Falha ao enviar pedido');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const callWaiter = async (reason: 'water' | 'napkin' | 'service' | 'bill' | 'other') => {
     if (!restaurant || !activeTableSession) return;
 
@@ -503,6 +580,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       products,
       categories,
       activeTableSession,
+      activeSession: activeTableSession,
       cart,
       sessionOrders,
       activeCalls,
@@ -510,6 +588,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       error,
       loadRestaurantData,
       startSession,
+      checkoutCart,
       checkCustomerByCpf,
       addToCart,
       removeFromCart,

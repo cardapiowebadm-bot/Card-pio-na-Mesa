@@ -5,7 +5,7 @@ import { ChefHat, ArrowRight, User, Phone, Clipboard, Loader2 } from 'lucide-rea
 import toast from 'react-hot-toast';
 
 export default function CardapioWelcome() {
-  const { restaurant, startSession, activeSession } = useCardapio();
+  const { restaurant, startSession, activeSession, loading: globalLoading, error: globalError } = useCardapio();
   const { restaurantId } = useParams<{ restaurantId: string }>();
   const navigate = useNavigate();
 
@@ -21,6 +21,47 @@ export default function CardapioWelcome() {
       navigate(`/menu/${restaurantId}/home`);
     }
   }, [activeSession, restaurantId]);
+
+  // Log error if restaurant cannot be found
+  React.useEffect(() => {
+    if (globalError) {
+      console.error(`[CardapioWelcome] Erro ao carregar estabelecimento com ID: ${restaurantId}. Detalhes:`, globalError);
+    }
+  }, [globalError, restaurantId]);
+
+  // If restaurant is still loading, show a beautiful loader
+  if (globalLoading && !restaurant) {
+    return (
+      <div className="min-h-[85vh] flex flex-col justify-center items-center py-6 font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-10 h-10 text-rose-600 animate-spin" />
+          <p className="text-sm font-semibold text-slate-500">Carregando cardápio digital...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If there's an error, or restaurant doesn't exist and not loading
+  if (globalError || (!restaurant && !globalLoading)) {
+    return (
+      <div className="min-h-[85vh] flex flex-col justify-center items-center py-6 font-sans px-4">
+        <div className="bg-white border border-slate-100 w-full max-w-sm rounded-3xl p-6 shadow-sm text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-sm">
+            <ChefHat className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="font-display font-extrabold text-lg text-slate-800">Cardápio Indisponível</h3>
+            <p className="text-slate-500 text-xs mt-2 leading-relaxed">
+              Não conseguimos encontrar este estabelecimento. Verifique se o link ou QR Code do cardápio está correto.
+            </p>
+          </div>
+          <p className="text-[10px] text-slate-400 bg-slate-50 py-1.5 px-3 rounded-lg font-mono">
+            Restaurante: {restaurantId || 'N/A'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
