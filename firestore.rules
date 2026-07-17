@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper: Is user logged in
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: Get user's profile document
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper: Check if user belongs to the target restaurant
+    function isMemberOf(restaurantId) {
+      return isLoggedIn() && getUserData().restaurantId == restaurantId;
+    }
+
+    // Helper: Check user role
+    function hasRole(role) {
+      return isLoggedIn() && getUserData().role == role;
+    }
+
+    // Restaurants
+    match /restaurants/{restaurantId} {
+      allow read: if true; // Publicly readable for cardápio
+      allow write: if isLoggedIn() && (
+        // Only owner or manager of this restaurant can edit
+        isMemberOf(restaurantId) && (getUserData().role == 'owner' || getUserData().role == 'manager')
+      ) || (
+        // Allow creating a new restaurant during sign-up
+        request.resource.data.ownerId == request.auth.uid
+      );
+    }
+
+    // Users (Employees/Owners)
+    match /users/{userId} {
+      allow read: if isLoggedIn() && (
+        request.auth.uid == userId || 
+        getUserData().restaurantId == resource.data.restaurantId
+      );
+      allow create: if isLoggedIn();
+      allow update, delete: if isLoggedIn() && (
+        request.auth.uid == userId || 
+        (getUserData().restaurantId == resource.data.restaurantId && (getUserData().role == 'owner' || getUserData().role == 'manager'))
+      );
+    }
+
+    // Categories
+    match /categories/{categoryId} {
+      allow read: if true; // Public menu access
+      allow write: if isLoggedIn() && isMemberOf(request.resource.data.restaurantId);
+    }
+
+    // Products
+    match /products/{productId} {
+      allow read: if true; // Public menu access
+      allow write: if isLoggedIn() && isMemberOf(request.resource.data.restaurantId);
+    }
+
+    // Tables
+    match /tables/{tableId} {
+      allow read: if true; // Publicly readable to select table
+      allow write: if isLoggedIn() && isMemberOf(request.resource.data.restaurantId);
+    }
+
+    // Table Sessions
+    match /tableSessions/{sessionId} {
+      allow read: if true; // Publicly readable to track current table session
+      allow create: if true; // Customers can create a session
+      allow update: if true; // Customers can request payment or close, admins can manage
+      allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
+    }
+
+    // Orders
+    match /orders/{orderId} {
+      allow read: if true; // Publicly readable to track own order status
+      allow create: if true; // Customers can place orders
+      allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId); // Only employees can update order status
+      allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && getUserData().role == 'owner';
+    }
+
+    // Waiter Calls
+    match /waiterCalls/{callId} {
+      allow read: if true; // Publicly readable to check call status
+      allow create: if true; // Customers can call waiter
+      allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId); // Employees can resolve calls
+      allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && getUserData().role == 'owner';
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
+      allow create: if true; // Frontend can create notifications
+      allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
+      allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
+    }
+  }
+}

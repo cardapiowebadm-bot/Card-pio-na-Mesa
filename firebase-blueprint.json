@@ -1,0 +1,126 @@
+{
+  "collections": {
+    "restaurants": {
+      "schema": {
+        "id": "string",
+        "name": "string",
+        "logo": "string",
+        "phone": "string",
+        "address": "string",
+        "instagram": "string",
+        "whatsapp": "string",
+        "hours": "string",
+        "serviceTax": "number",
+        "theme": {
+          "primary": "string",
+          "secondary": "string"
+        },
+        "createdAt": "timestamp",
+        "ownerId": "string"
+      }
+    },
+    "users": {
+      "schema": {
+        "id": "string",
+        "name": "string",
+        "email": "string",
+        "role": "string",
+        "restaurantId": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "categories": {
+      "schema": {
+        "id": "string",
+        "name": "string",
+        "index": "number",
+        "restaurantId": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "products": {
+      "schema": {
+        "id": "string",
+        "name": "string",
+        "description": "string",
+        "price": "number",
+        "imageUrl": "string",
+        "categoryId": "string",
+        "available": "boolean",
+        "featured": "boolean",
+        "onSale": "boolean",
+        "salePrice": "number",
+        "prepareTime": "number",
+        "restaurantId": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "tables": {
+      "schema": {
+        "id": "string",
+        "number": "number",
+        "status": "string",
+        "restaurantId": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "tableSessions": {
+      "schema": {
+        "id": "string",
+        "tableId": "string",
+        "tableNumber": "number",
+        "restaurantId": "string",
+        "customerName": "string",
+        "customerPhone": "string",
+        "customerCpf": "string",
+        "status": "string",
+        "createdAt": "timestamp",
+        "closedAt": "timestamp",
+        "paymentMethod": "string",
+        "paymentStatus": "string"
+      }
+    },
+    "orders": {
+      "schema": {
+        "id": "string",
+        "tableSessionId": "string",
+        "tableId": "string",
+        "tableNumber": "number",
+        "restaurantId": "string",
+        "items": "array",
+        "subtotal": "number",
+        "serviceTax": "number",
+        "total": "number",
+        "status": "string",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp",
+        "customerName": "string",
+        "customerPhone": "string"
+      }
+    },
+    "waiterCalls": {
+      "schema": {
+        "id": "string",
+        "tableSessionId": "string",
+        "tableId": "string",
+        "tableNumber": "number",
+        "restaurantId": "string",
+        "reason": "string",
+        "status": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "notifications": {
+      "schema": {
+        "id": "string",
+        "restaurantId": "string",
+        "type": "string",
+        "message": "string",
+        "status": "string",
+        "referenceId": "string",
+        "tableNumber": "number",
+        "createdAt": "timestamp"
+      }
+    }
+  }
+}

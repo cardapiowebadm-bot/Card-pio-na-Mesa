@@ -1,0 +1,6 @@
+{
+  "name": "Cardápio na Mesa",
+  "description": "Um Micro SaaS profissional e completo de Cardápio Digital Multi-Tenant para restaurantes, bares, hamburguerias e afins, com gestão de pedidos em tempo real, painel administrativo e chamada de garçom.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
