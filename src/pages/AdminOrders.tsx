@@ -30,6 +30,7 @@ export default function AdminOrders() {
   const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
+  const [selectedItems, setSelectedItems] = useState<{ [orderId: string]: number[] }>({});
 
   const handlePrint = (order: Order) => {
     setPrintingOrder(order);
@@ -103,9 +104,74 @@ export default function AdminOrders() {
     return unsubscribe;
   }, [userProfile?.restaurantId]);
 
+  const handleToggleItemSelection = (orderId: string, index: number) => {
+    setSelectedItems(prev => {
+      const current = prev[orderId] || [];
+      const updated = current.includes(index)
+        ? current.filter(i => i !== index)
+        : [...current, index];
+      return { ...prev, [orderId]: updated };
+    });
+  };
+
+  const handleDeliverSelectedItems = async (order: Order) => {
+    const selectedIndices = selectedItems[order.id] || [];
+    if (selectedIndices.length === 0) {
+      toast.error('Selecione pelo menos um item para entregar');
+      return;
+    }
+
+    try {
+      const updatedItems = order.items.map((item, index) => {
+        if (selectedIndices.includes(index)) {
+          return { ...item, status: 'delivered' as const };
+        }
+        return item;
+      });
+
+      const allDelivered = updatedItems.every(item => item.status === 'delivered');
+      
+      const updatePayload: any = {
+        items: updatedItems,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (allDelivered) {
+        updatePayload.status = 'delivered';
+      }
+
+      await updateDoc(doc(db, 'orders', order.id), updatePayload);
+
+      setSelectedItems(prev => {
+        const copy = { ...prev };
+        delete copy[order.id];
+        return copy;
+      });
+
+      if (allDelivered) {
+        toast.success('Todos os itens foram entregues. Pedido finalizado!');
+      } else {
+        toast.success('Itens selecionados foram entregues com sucesso!');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao entregar os itens selecionados');
+    }
+  };
+
   const handleUpdateStatus = async (orderId: string, nextStatus: 'preparing' | 'delivered' | 'cancelled') => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: nextStatus });
+      const payload: any = { status: nextStatus };
+      if (nextStatus === 'delivered') {
+        const order = orders.find(o => o.id === orderId);
+        if (order) {
+          payload.items = order.items.map(item => ({
+            ...item,
+            status: 'delivered' as const
+          }));
+        }
+      }
+      await updateDoc(doc(db, 'orders', orderId), payload);
       
       const messages = {
         preparing: 'Pedido enviado para preparo!',
@@ -221,22 +287,49 @@ export default function AdminOrders() {
 
                   {/* Items List */}
                   <div className="space-y-3">
-                    {order.items.map((item, index) => (
-                      <div key={index} className="flex justify-between items-start text-xs text-slate-700">
-                        <div className="flex items-start gap-2 max-w-[80%]">
-                          <span className="bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded text-[10px] shrink-0">
-                            {item.quantity}x
-                          </span>
-                          <div>
-                            <p className="font-semibold text-slate-800">{item.name}</p>
-                            {item.notes && (
-                              <p className="text-[10px] text-red-500 font-semibold mt-0.5 italic">Obs: {item.notes}</p>
+                    {order.items.map((item, index) => {
+                      const isDelivered = item.status === 'delivered';
+                      const isPreparing = order.status === 'preparing';
+                      const isSelected = selectedItems[order.id]?.includes(index) || false;
+
+                      return (
+                        <div key={index} className="flex justify-between items-start text-xs text-slate-700">
+                          <div className="flex items-start gap-2 max-w-[80%]">
+                            {isPreparing && (
+                              <div className="flex items-center h-4 shrink-0">
+                                {isDelivered ? (
+                                  <span className="text-emerald-500" title="Item já entregue">
+                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleItemSelection(order.id, index)}
+                                    className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-3.5 h-3.5 cursor-pointer"
+                                    id={`item-checkbox-${order.id}-${index}`}
+                                  />
+                                )}
+                              </div>
                             )}
+                            <span className={`bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded text-[10px] shrink-0 ${isDelivered ? 'opacity-50' : ''}`}>
+                              {item.quantity}x
+                            </span>
+                            <div>
+                              <p className={`font-semibold ${isDelivered ? 'text-slate-400 line-through font-normal' : 'text-slate-800'}`}>
+                                {item.name}
+                              </p>
+                              {item.notes && (
+                                <p className="text-[10px] text-red-500 font-semibold mt-0.5 italic">Obs: {item.notes}</p>
+                              )}
+                            </div>
                           </div>
+                          <span className={`font-semibold ${isDelivered ? 'text-slate-400' : 'text-slate-500'}`}>
+                            R$ {(item.price * item.quantity).toFixed(2)}
+                          </span>
                         </div>
-                        <span className="font-semibold text-slate-500">R$ {(item.price * item.quantity).toFixed(2)}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -278,13 +371,23 @@ export default function AdminOrders() {
                         >
                           Cancelar Pedido
                         </button>
-                        <button
-                          onClick={() => handleUpdateStatus(order.id, 'delivered')}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-sm hover:shadow transition-all"
-                        >
-                          <Check className="w-4 h-4" />
-                          Entregar
-                        </button>
+                        {(selectedItems[order.id] || []).length > 0 ? (
+                          <button
+                            onClick={() => handleDeliverSelectedItems(order)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-sm hover:shadow transition-all animate-pulse"
+                          >
+                            <Check className="w-4 h-4" />
+                            Entregar Selecionados
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleUpdateStatus(order.id, 'delivered')}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-sm hover:shadow transition-all"
+                          >
+                            <Check className="w-4 h-4" />
+                            Entregar Tudo
+                          </button>
+                        )}
                       </>
                     ) : order.status === 'cancelled' ? (
                       <div className="col-span-2 text-center text-red-500 text-xs font-semibold py-2">

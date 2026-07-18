@@ -87,6 +87,7 @@ export interface OrderItem {
   price: number;
   quantity: number;
   notes?: string;
+  status?: 'preparing' | 'delivered';
 }
 
 export interface Order {

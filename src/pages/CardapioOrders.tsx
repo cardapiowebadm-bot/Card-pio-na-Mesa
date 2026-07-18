@@ -161,13 +161,32 @@ export default function CardapioOrders() {
                   )}
 
                   {/* Items */}
-                  <div className={`space-y-1.5 text-xs ${o.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                    {o.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between">
-                        <span>{item.quantity}x {item.name}</span>
-                        <span className="font-semibold text-slate-500">R$ {(item.price * item.quantity).toFixed(2)}</span>
-                      </div>
-                    ))}
+                  <div className={`space-y-2 text-xs ${o.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                    {o.items.map((item, idx) => {
+                      const isItemDelivered = item.status === 'delivered';
+                      return (
+                        <div key={idx} className="flex justify-between items-start gap-2">
+                          <div className="flex flex-col">
+                            <span className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-slate-800">{item.quantity}x {item.name}</span>
+                              {o.status === 'preparing' && (
+                                <span className={`text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                                  isItemDelivered 
+                                    ? 'bg-emerald-50 text-emerald-600' 
+                                    : 'bg-blue-50 text-blue-600 animate-pulse'
+                                }`}>
+                                  {isItemDelivered ? 'Entregue' : 'Em Preparo'}
+                                </span>
+                              )}
+                            </span>
+                            {item.notes && (
+                              <span className="text-[10px] text-red-500 font-semibold mt-0.5 italic">Obs: {item.notes}</span>
+                            )}
+                          </div>
+                          <span className="font-semibold text-slate-500 shrink-0">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="flex justify-between text-xs font-bold text-slate-800 pt-1.5 border-t border-slate-50">
