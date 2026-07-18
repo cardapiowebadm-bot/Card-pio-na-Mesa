@@ -293,10 +293,13 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         restaurantId: restaurant.id,
         customerName: customer.name,
         customerPhone: customer.phone,
-        customerCpf: customer.cpf ? customer.cpf.replace(/\D/g, '') : undefined,
         status: 'active',
         createdAt: new Date().toISOString()
       };
+
+      if (customer.cpf && customer.cpf.trim() !== '') {
+        newSession.customerCpf = customer.cpf.replace(/\D/g, '');
+      }
 
       await setDoc(sessionRef, newSession);
 
