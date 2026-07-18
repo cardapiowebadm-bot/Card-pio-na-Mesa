@@ -66,6 +66,8 @@ export default function CardapioWelcome() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
     const tableInt = parseInt(tableNum);
     if (!tableInt || isNaN(tableInt)) {
       toast.error('Por favor, informe o número da mesa.');
@@ -213,8 +215,9 @@ export default function CardapioWelcome() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={loading}
-            className="w-full mt-4 flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all disabled:opacity-50"
+            className={`w-full mt-4 flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all ${
+              loading ? 'opacity-50 pointer-events-none' : ''
+            }`}
           >
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin" />

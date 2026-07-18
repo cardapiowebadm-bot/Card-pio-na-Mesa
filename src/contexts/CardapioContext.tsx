@@ -69,37 +69,53 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Read cart and active session from localStorage on mount
   useEffect(() => {
-    const savedSession = localStorage.getItem('cardapio_table_session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        setActiveTableSession(parsed);
-      } catch (e) {
-        console.error("Error parsing saved session", e);
+    try {
+      const savedSession = localStorage.getItem('cardapio_table_session');
+      if (savedSession) {
+        try {
+          const parsed = JSON.parse(savedSession);
+          setActiveTableSession(parsed);
+        } catch (e) {
+          console.error("Error parsing saved session", e);
+        }
       }
+    } catch (e) {
+      console.error("Error reading localStorage", e);
     }
 
-    const savedCart = localStorage.getItem('cardapio_cart');
-    if (savedCart) {
-      try {
-        setCart(JSON.parse(savedCart));
-      } catch (e) {
-        console.error("Error parsing saved cart", e);
+    try {
+      const savedCart = localStorage.getItem('cardapio_cart');
+      if (savedCart) {
+        try {
+          setCart(JSON.parse(savedCart));
+        } catch (e) {
+          console.error("Error parsing saved cart", e);
+        }
       }
+    } catch (e) {
+      console.error("Error reading localStorage", e);
     }
   }, []);
 
   // Save cart to localStorage when it changes
   useEffect(() => {
-    localStorage.setItem('cardapio_cart', JSON.stringify(cart));
+    try {
+      localStorage.setItem('cardapio_cart', JSON.stringify(cart));
+    } catch (e) {
+      console.error("Error writing to localStorage", e);
+    }
   }, [cart]);
 
   // Save active session to localStorage when it changes
   useEffect(() => {
-    if (activeTableSession) {
-      localStorage.setItem('cardapio_table_session', JSON.stringify(activeTableSession));
-    } else {
-      localStorage.removeItem('cardapio_table_session');
+    try {
+      if (activeTableSession) {
+        localStorage.setItem('cardapio_table_session', JSON.stringify(activeTableSession));
+      } else {
+        localStorage.removeItem('cardapio_table_session');
+      }
+    } catch (e) {
+      console.error("Error modifying localStorage", e);
     }
   }, [activeTableSession]);
 
@@ -165,8 +181,12 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           // Admin closed the session, clear local session
           setActiveTableSession(null);
           setCart([]);
-          localStorage.removeItem('cardapio_table_session');
-          localStorage.removeItem('cardapio_cart');
+          try {
+            localStorage.removeItem('cardapio_table_session');
+            localStorage.removeItem('cardapio_cart');
+          } catch (e) {
+            console.error("Error clearing localStorage", e);
+          }
         } else {
           setActiveTableSession({ ...data, id: snapshot.id });
         }
@@ -628,8 +648,12 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const closeSessionLocal = () => {
     setActiveTableSession(null);
     setCart([]);
-    localStorage.removeItem('cardapio_table_session');
-    localStorage.removeItem('cardapio_cart');
+    try {
+      localStorage.removeItem('cardapio_table_session');
+      localStorage.removeItem('cardapio_cart');
+    } catch (e) {
+      console.error("Error clearing localStorage", e);
+    }
   };
 
   return (
