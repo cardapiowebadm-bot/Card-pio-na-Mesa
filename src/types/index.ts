@@ -16,6 +16,12 @@ export interface Restaurant {
   };
   ownerId: string;
   createdAt: any;
+  serviceTaxEnabled?: boolean;
+  serviceTaxType?: 'percentage' | 'fixed';
+  serviceTaxValue?: number;
+  couvertEnabled?: boolean;
+  couvertType?: 'percentage' | 'fixed';
+  couvertValue?: number;
 }
 
 export interface UserProfile {
@@ -91,8 +97,11 @@ export interface Order {
   items: OrderItem[];
   subtotal: number;
   serviceTax: number;
+  couvert?: number;
   total: number;
-  status: 'pending' | 'accepted' | 'preparing' | 'ready' | 'delivered';
+  status: 'pending' | 'accepted' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+  cancelReason?: string;
+  cancelledAt?: string;
   createdAt: any;
   updatedAt: any;
   customerName: string;

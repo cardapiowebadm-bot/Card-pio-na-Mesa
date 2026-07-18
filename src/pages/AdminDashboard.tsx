@@ -73,8 +73,9 @@ export default function AdminDashboard() {
   }, [userProfile?.restaurantId]);
 
   // Compute metrics
-  const totalFaturamento = orders.reduce((acc, o) => o.status !== 'pending' ? acc + o.total : acc, 0);
-  const totalOrdersCount = orders.length;
+  const successfulOrders = orders.filter(o => o.status !== 'cancelled');
+  const totalFaturamento = successfulOrders.reduce((acc, o) => o.status !== 'pending' ? acc + o.total : acc, 0);
+  const totalOrdersCount = successfulOrders.length;
   const pendingOrdersCount = orders.filter(o => o.status === 'pending').length;
   const preparingOrdersCount = orders.filter(o => o.status === 'preparing' || o.status === 'accepted').length;
   const deliveredOrdersCount = orders.filter(o => o.status === 'delivered').length;
@@ -86,7 +87,7 @@ export default function AdminDashboard() {
 
   // Most sold items algorithm
   const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
-  orders.forEach(o => {
+  successfulOrders.forEach(o => {
     o.items.forEach(item => {
       if (!itemCounts[item.productId]) {
         itemCounts[item.productId] = { name: item.name, count: 0, revenue: 0 };

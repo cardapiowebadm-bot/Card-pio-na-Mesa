@@ -370,8 +370,32 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoading(true);
     try {
       const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
-      const serviceTaxValue = ((restaurant.serviceTax || 10) / 100) * subtotal;
-      const total = subtotal + serviceTaxValue;
+      
+      let serviceTaxValue = 0;
+      if (restaurant.serviceTaxEnabled !== false) {
+        const taxType = restaurant.serviceTaxType || 'percentage';
+        const taxVal = restaurant.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
+        if (taxType === 'percentage') {
+          serviceTaxValue = (taxVal / 100) * subtotal;
+        } else {
+          const hasServiceTax = sessionOrders.some(o => o.serviceTax !== undefined && o.serviceTax > 0);
+          serviceTaxValue = hasServiceTax ? 0 : taxVal;
+        }
+      }
+
+      let couvertValue = 0;
+      if (restaurant.couvertEnabled) {
+        const couvertType = restaurant.couvertType || 'fixed';
+        const couvertVal = restaurant.couvertValue !== undefined ? restaurant.couvertValue : 0;
+        if (couvertType === 'percentage') {
+          couvertValue = (couvertVal / 100) * subtotal;
+        } else {
+          const hasCouvert = sessionOrders.some(o => o.couvert !== undefined && o.couvert > 0);
+          couvertValue = hasCouvert ? 0 : couvertVal;
+        }
+      }
+
+      const total = subtotal + serviceTaxValue + couvertValue;
 
       const orderRef = doc(collection(db, 'orders'));
       const newOrder: Order = {
@@ -389,6 +413,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         })),
         subtotal,
         serviceTax: serviceTaxValue,
+        couvert: couvertValue,
         total,
         status: 'pending',
         createdAt: new Date().toISOString(),
@@ -430,8 +455,32 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoading(true);
     try {
       const subtotal = activeItems.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
-      const serviceTaxValue = ((restaurant.serviceTax || 10) / 100) * subtotal;
-      const total = subtotal + serviceTaxValue;
+      
+      let serviceTaxValue = 0;
+      if (restaurant.serviceTaxEnabled !== false) {
+        const taxType = restaurant.serviceTaxType || 'percentage';
+        const taxVal = restaurant.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
+        if (taxType === 'percentage') {
+          serviceTaxValue = (taxVal / 100) * subtotal;
+        } else {
+          const hasServiceTax = sessionOrders.some(o => o.serviceTax !== undefined && o.serviceTax > 0);
+          serviceTaxValue = hasServiceTax ? 0 : taxVal;
+        }
+      }
+
+      let couvertValue = 0;
+      if (restaurant.couvertEnabled) {
+        const couvertType = restaurant.couvertType || 'fixed';
+        const couvertVal = restaurant.couvertValue !== undefined ? restaurant.couvertValue : 0;
+        if (couvertType === 'percentage') {
+          couvertValue = (couvertVal / 100) * subtotal;
+        } else {
+          const hasCouvert = sessionOrders.some(o => o.couvert !== undefined && o.couvert > 0);
+          couvertValue = hasCouvert ? 0 : couvertVal;
+        }
+      }
+
+      const total = subtotal + serviceTaxValue + couvertValue;
 
       const orderRef = doc(collection(db, 'orders'));
       const newOrder: Order = {
@@ -449,6 +498,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         })),
         subtotal,
         serviceTax: serviceTaxValue,
+        couvert: couvertValue,
         total,
         status: 'pending',
         createdAt: new Date().toISOString(),

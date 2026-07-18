@@ -51,9 +51,31 @@ export default function CardapioOrders() {
   }, [activeSession?.id]);
 
   // Compute session totals
-  const subtotal = orders.reduce((acc, o) => acc + o.subtotal, 0);
-  const serviceTax = restaurant?.serviceTaxEnabled !== false ? subtotal * 0.10 : 0;
-  const total = subtotal + serviceTax;
+  const subtotal = orders.filter(o => o.status !== 'cancelled').reduce((acc, o) => acc + o.subtotal, 0);
+
+  let serviceTax = 0;
+  if (restaurant?.serviceTaxEnabled !== false) {
+    const taxType = restaurant?.serviceTaxType || 'percentage';
+    const taxVal = restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
+    if (taxType === 'fixed') {
+      serviceTax = taxVal;
+    } else {
+      serviceTax = (taxVal / 100) * subtotal;
+    }
+  }
+
+  let couvert = 0;
+  if (restaurant?.couvertEnabled) {
+    const couvertType = restaurant?.couvertType || 'fixed';
+    const couvertVal = restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0;
+    if (couvertType === 'fixed') {
+      couvert = couvertVal;
+    } else {
+      couvert = (couvertVal / 100) * subtotal;
+    }
+  }
+
+  const total = subtotal + serviceTax + couvert;
 
   const handleRequestCheckout = async (method: 'pix' | 'card') => {
     if (!activeSession) return;
@@ -118,14 +140,28 @@ export default function CardapioOrders() {
                         ? 'bg-amber-50 text-amber-600 animate-pulse' 
                         : o.status === 'preparing' 
                           ? 'bg-blue-50 text-blue-600' 
-                          : 'bg-emerald-50 text-emerald-600'
+                          : o.status === 'cancelled'
+                            ? 'bg-red-50 text-red-600'
+                            : 'bg-emerald-50 text-emerald-600'
                     }`}>
-                      {o.status === 'pending' ? 'Pendente' : o.status === 'preparing' ? 'Em Preparo' : 'Entregue'}
+                      {o.status === 'pending' ? 'Pendente' : o.status === 'preparing' ? 'Em Preparo' : o.status === 'cancelled' ? 'Cancelado' : 'Entregue'}
                     </span>
                   </div>
 
+                  {/* Cancellation Reason Context */}
+                  {o.status === 'cancelled' && (
+                    <div className="bg-red-50/60 border border-red-100/40 p-2.5 rounded-xl text-[11px] text-red-700 font-medium space-y-1">
+                      <p><span className="font-bold">Motivo do cancelamento:</span> {o.cancelReason}</p>
+                      {o.cancelledAt && (
+                        <p className="text-[10px] text-slate-400 font-normal">
+                          Cancelado em: {new Date(o.cancelledAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Items */}
-                  <div className="space-y-1.5 text-xs text-slate-700">
+                  <div className={`space-y-1.5 text-xs ${o.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
                     {o.items.map((item, idx) => (
                       <div key={idx} className="flex justify-between">
                         <span>{item.quantity}x {item.name}</span>
@@ -158,8 +194,26 @@ export default function CardapioOrders() {
               </div>
               {restaurant?.serviceTaxEnabled !== false && (
                 <div className="flex justify-between">
-                  <span>Taxa de Serviço ({'10%'})</span>
+                  <span>
+                    Taxa de Serviço ({
+                      (restaurant?.serviceTaxType || 'percentage') === 'percentage'
+                        ? `${restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10}%`
+                        : `R$ ${(restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10).toFixed(2)}`
+                    })
+                  </span>
                   <span className="font-semibold">R$ {serviceTax.toFixed(2)}</span>
+                </div>
+              )}
+              {restaurant?.couvertEnabled && (
+                <div className="flex justify-between">
+                  <span>
+                    Couvert Artístico ({
+                      (restaurant?.couvertType || 'fixed') === 'percentage'
+                        ? `${restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0}%`
+                        : `R$ ${(restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0).toFixed(2)}`
+                    })
+                  </span>
+                  <span className="font-semibold">R$ {couvert.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between text-base font-extrabold text-slate-800 pt-2 border-t border-slate-50">

@@ -28,7 +28,7 @@ import {
 import toast from 'react-hot-toast';
 
 export default function AdminTables() {
-  const { userProfile } = useAuth();
+  const { userProfile, restaurant } = useAuth();
   const [tables, setTables] = useState<Table[]>([]);
   const [sessions, setSessions] = useState<TableSession[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -157,20 +157,20 @@ export default function AdminTables() {
 
   const getTableStatus = (table: Table) => {
     // Priority:
-    // 1. Billing requested
+    // 1. Billing requested (not paid yet)
     // 2. Waiter calling
-    // 3. Occupied (has active session)
+    // 3. Occupied (has active session and not paid yet)
     // 4. Free
     const session = sessions.find(s => s.tableId === table.id);
     const hasPendingCall = calls.some(c => c.tableId === table.id);
     
-    if (session?.paymentMethod) {
+    if (session?.paymentMethod && session?.paymentStatus !== 'paid') {
       return 'billing';
     }
     if (hasPendingCall) {
       return 'calling';
     }
-    if (session) {
+    if (session && session?.paymentStatus !== 'paid') {
       return 'occupied';
     }
     return 'free';
@@ -331,15 +331,14 @@ export default function AdminTables() {
             (() => {
               const activeSession = sessions.find(s => s.tableId === selectedTable.id);
               const tableOrders = orders.filter(o => o.tableSessionId === activeSession?.id);
+              const activeTableOrders = tableOrders.filter(o => o.status !== 'cancelled');
               const tableCalls = calls.filter(c => c.tableId === selectedTable.id);
 
               // Consolidation of products ordered in this session
               const consolidatedItems: Record<string, { name: string; quantity: number; price: number; subtotal: number }> = {};
               let subtotalSum = 0;
-              let taxSum = 0;
-              let totalSum = 0;
 
-              tableOrders.forEach(o => {
+              activeTableOrders.forEach(o => {
                 o.items.forEach(item => {
                   const key = item.productId + '_' + item.price;
                   if (!consolidatedItems[key]) {
@@ -349,9 +348,31 @@ export default function AdminTables() {
                   consolidatedItems[key].subtotal += item.price * item.quantity;
                 });
                 subtotalSum += o.subtotal;
-                taxSum += o.serviceTax;
-                totalSum += o.total;
               });
+
+              let taxSum = 0;
+              if (restaurant?.serviceTaxEnabled !== false) {
+                const taxType = restaurant?.serviceTaxType || 'percentage';
+                const taxVal = restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
+                if (taxType === 'percentage') {
+                  taxSum = (taxVal / 100) * subtotalSum;
+                } else {
+                  taxSum = taxVal;
+                }
+              }
+
+              let couvertSum = 0;
+              if (restaurant?.couvertEnabled) {
+                const couvertType = restaurant?.couvertType || 'fixed';
+                const couvertVal = restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0;
+                if (couvertType === 'fixed') {
+                  couvertSum = couvertVal;
+                } else {
+                  couvertSum = (couvertVal / 100) * subtotalSum;
+                }
+              }
+
+              const totalSum = subtotalSum + taxSum + couvertSum;
 
               return (
                 <div className="space-y-6">
@@ -421,26 +442,44 @@ export default function AdminTables() {
 
                       {/* Payment requested info */}
                       {activeSession.paymentMethod && (
-                        <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl space-y-2">
-                          <div className="flex items-center gap-2 text-purple-800 text-xs font-bold uppercase tracking-wider">
-                            <CreditCard className="w-4 h-4 animate-bounce" />
-                            Fechamento Solicitado
+                        activeSession.paymentStatus === 'paid' ? (
+                          <div className="bg-emerald-50 border border-emerald-150 p-4 rounded-2xl space-y-2 animate-fade-in">
+                            <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold uppercase tracking-wider">
+                              <CheckCircle className="w-4 h-4 text-emerald-600" />
+                              Pagamento confirmado e mesa liberada
+                            </div>
+                            <p className="text-xs text-emerald-700 font-medium">
+                              ✅ Pagamento confirmado. Mesa liberada com sucesso.
+                            </p>
                           </div>
-                          <p className="text-xs text-purple-700">
-                            O cliente solicitou fechar a conta via <strong className="font-extrabold uppercase">{activeSession.paymentMethod}</strong>.
-                          </p>
-                          <div className="flex gap-2 pt-1">
-                            <button
-                              onClick={async () => {
-                                await updateDoc(doc(db, 'tableSessions', activeSession.id), { paymentStatus: 'paid' });
-                                toast.success('Pagamento confirmado!');
-                              }}
-                              className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg"
-                            >
-                              Confirmar Pago
-                            </button>
+                        ) : (
+                          <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl space-y-2">
+                            <div className="flex items-center gap-2 text-purple-800 text-xs font-bold uppercase tracking-wider">
+                              <CreditCard className="w-4 h-4 animate-bounce" />
+                              Fechamento Solicitado
+                            </div>
+                            <p className="text-xs text-purple-700">
+                              O cliente solicitou fechar a conta via <strong className="font-extrabold uppercase">{activeSession.paymentMethod}</strong>.
+                            </p>
+                            <div className="flex gap-2 pt-1">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateDoc(doc(db, 'tableSessions', activeSession.id), { paymentStatus: 'paid' });
+                                    await updateDoc(doc(db, 'tables', selectedTable.id), { status: 'free' });
+                                    toast.success('✅ Pagamento confirmado. Mesa liberada com sucesso.');
+                                  } catch (e) {
+                                    console.error(e);
+                                    toast.error('Erro ao confirmar pagamento');
+                                  }
+                                }}
+                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg"
+                              >
+                                Confirmar Pago
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        )
                       )}
 
                       {/* Ordered items listing */}
@@ -464,16 +503,68 @@ export default function AdminTables() {
                         )}
                       </div>
 
+                      {/* Cancelled orders listing */}
+                      {tableOrders.some(o => o.status === 'cancelled') && (
+                        <div className="mt-4 pt-4 border-t border-slate-100">
+                          <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider mb-3">Pedidos Cancelados</h4>
+                          <div className="space-y-3 max-h-[150px] overflow-y-auto pr-1">
+                            {tableOrders.filter(o => o.status === 'cancelled').map((o, idx) => {
+                              const cancelTime = o.cancelledAt ? new Date(o.cancelledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+                              return (
+                                <div key={o.id} className="bg-red-50/50 border border-red-100/60 p-3 rounded-xl text-xs space-y-1.5">
+                                  <div className="flex justify-between font-semibold text-slate-700">
+                                    <span>Pedido #{o.id.substring(0, 5).toUpperCase()}</span>
+                                    <span className="text-red-600 font-bold uppercase text-[9px]">Cancelado</span>
+                                  </div>
+                                  <div className="space-y-1 text-slate-500">
+                                    {o.items.map((item, itemIdx) => (
+                                      <div key={itemIdx} className="flex justify-between">
+                                        <span>{item.quantity}x {item.name}</span>
+                                        <span>R$ {(item.price * item.quantity).toFixed(2)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 border-t border-red-150 pt-1.5">
+                                    <span className="font-semibold text-red-700">Motivo: </span>{o.cancelReason}
+                                    {cancelTime && <span className="block text-slate-400 mt-0.5">Cancelado às {cancelTime}</span>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Summary financials */}
                       <div className="border-t border-slate-100 pt-4 space-y-2">
                         <div className="flex justify-between text-xs text-slate-500">
                           <span>Subtotal</span>
                           <span>R$ {subtotalSum.toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-xs text-slate-500">
-                          <span>Taxa de Serviço ({userProfile.role !== 'cozinha' ? '10%' : '10%'})</span>
-                          <span>R$ {taxSum.toFixed(2)}</span>
-                        </div>
+                        {restaurant?.serviceTaxEnabled !== false && (
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span>
+                              Taxa de Serviço ({
+                                (restaurant?.serviceTaxType || 'percentage') === 'percentage'
+                                  ? `${restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10}%`
+                                  : `R$ ${(restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10).toFixed(2)}`
+                              })
+                            </span>
+                            <span>R$ {taxSum.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {restaurant?.couvertEnabled && (
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span>
+                              Couvert Artístico ({
+                                (restaurant?.couvertType || 'fixed') === 'percentage'
+                                  ? `${restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0}%`
+                                  : `R$ ${(restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0).toFixed(2)}`
+                              })
+                            </span>
+                            <span>R$ {couvertSum.toFixed(2)}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-sm font-bold text-slate-800 pt-1.5 border-t border-slate-100">
                           <span>TOTAL DA CONTA</span>
                           <span>R$ {totalSum.toFixed(2)}</span>

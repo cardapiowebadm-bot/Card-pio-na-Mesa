@@ -29,8 +29,29 @@ export default function CardapioCart() {
     return acc + (priceNum * qtyNum);
   }, 0);
 
-  const serviceTax = restaurant?.serviceTaxEnabled !== false ? subtotal * 0.10 : 0;
-  const total = subtotal + serviceTax;
+  let serviceTax = 0;
+  if (restaurant?.serviceTaxEnabled !== false) {
+    const taxType = restaurant?.serviceTaxType || 'percentage';
+    const taxVal = restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
+    if (taxType === 'fixed') {
+      serviceTax = taxVal;
+    } else {
+      serviceTax = (taxVal / 100) * subtotal;
+    }
+  }
+
+  let couvert = 0;
+  if (restaurant?.couvertEnabled) {
+    const couvertType = restaurant?.couvertType || 'fixed';
+    const couvertVal = restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0;
+    if (couvertType === 'fixed') {
+      couvert = couvertVal;
+    } else {
+      couvert = (couvertVal / 100) * subtotal;
+    }
+  }
+
+  const total = subtotal + serviceTax + couvert;
 
   const handleUpdateNotes = (productId: string, val: string) => {
     setItemNotes(prev => ({ ...prev, [productId]: val }));
@@ -171,8 +192,26 @@ export default function CardapioCart() {
           </div>
           {restaurant?.serviceTaxEnabled !== false && (
             <div className="flex justify-between text-slate-500">
-              <span>Taxa de Serviço sugerida (10%)</span>
+              <span>
+                Taxa de Serviço sugerida ({
+                  (restaurant?.serviceTaxType || 'percentage') === 'percentage'
+                    ? `${restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10}%`
+                    : `R$ ${(restaurant?.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10).toFixed(2)}`
+                })
+              </span>
               <span>R$ {serviceTax.toFixed(2)}</span>
+            </div>
+          )}
+          {restaurant?.couvertEnabled && (
+            <div className="flex justify-between text-slate-500">
+              <span>
+                Couvert Artístico ({
+                  (restaurant?.couvertType || 'fixed') === 'percentage'
+                    ? `${restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0}%`
+                    : `R$ ${(restaurant?.couvertValue !== undefined ? restaurant.couvertValue : 0).toFixed(2)}`
+                })
+              </span>
+              <span>R$ {couvert.toFixed(2)}</span>
             </div>
           )}
           <div className="flex justify-between text-sm font-bold text-slate-800 pt-2 border-t border-slate-50">
