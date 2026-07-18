@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { getThemeShades } from '../services/theme';
 
 export default function CardapioLayout({ children }: { children: React.ReactNode }) {
   const { restaurant, activeSession, cart, callWaiter } = useCardapio();
@@ -52,8 +53,22 @@ export default function CardapioLayout({ children }: { children: React.ReactNode
     }
   ];
 
+  const themeColor = restaurant?.themeColor || '#e11d48';
+  const shades = getThemeShades(themeColor);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-24 text-slate-800">
+    <div className="cardapio-theme min-h-screen bg-slate-50 flex flex-col font-sans pb-24 text-slate-800">
+      <style>{`
+        .cardapio-theme {
+          --color-rose-50: ${shades[50]};
+          --color-rose-100: ${shades[100]};
+          --color-rose-500: ${shades[500]};
+          --color-rose-600: ${shades[600]};
+          --color-rose-700: ${shades[700]};
+          --color-rose-900: ${shades[900]};
+          --theme-primary: ${shades[600]};
+        }
+      `}</style>
       
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 py-3 shadow-sm flex items-center justify-between">

@@ -3,6 +3,7 @@ import { useCardapio } from '../contexts/CardapioContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChefHat, ArrowRight, User, Phone, Clipboard, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getThemeShades } from '../services/theme';
 
 export default function CardapioWelcome() {
   const { restaurant, startSession, activeSession, loading: globalLoading, error: globalError } = useCardapio();
@@ -92,8 +93,22 @@ export default function CardapioWelcome() {
     }
   };
 
+  const themeColor = restaurant?.themeColor || '#e11d48';
+  const shades = getThemeShades(themeColor);
+
   return (
-    <div className="min-h-[85vh] flex flex-col justify-center items-center py-6 font-sans">
+    <div className="cardapio-theme min-h-[85vh] flex flex-col justify-center items-center py-6 font-sans">
+      <style>{`
+        .cardapio-theme {
+          --color-rose-50: ${shades[50]};
+          --color-rose-100: ${shades[100]};
+          --color-rose-500: ${shades[500]};
+          --color-rose-600: ${shades[600]};
+          --color-rose-700: ${shades[700]};
+          --color-rose-900: ${shades[900]};
+          --theme-primary: ${shades[600]};
+        }
+      `}</style>
       
       {/* Restaurant Header */}
       <div className="text-center space-y-3 mb-8">

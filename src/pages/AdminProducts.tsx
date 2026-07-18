@@ -127,9 +127,9 @@ export default function AdminProducts() {
       available,
       featured,
       onSale,
-      salePrice: salePrice ? parseFloat(salePrice) : undefined,
+      salePrice: onSale && salePrice ? parseFloat(salePrice) : null,
       prepareTime: parseInt(prepareTime) || 15,
-      restaurantId: userProfile?.restaurantId,
+      restaurantId: userProfile?.restaurantId || null,
       createdAt: new Date().toISOString()
     };
 

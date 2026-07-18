@@ -138,6 +138,17 @@ export default function AdminTables() {
   };
 
   const handleDeleteTable = async (table: Table) => {
+    // Check if table has active session, active orders, pending call, or is not free
+    const status = getTableStatus(table);
+    const hasActiveSession = sessions.some(s => s.tableId === table.id);
+    const hasActiveOrders = orders.some(o => o.tableId === table.id && o.status !== 'completed' && o.status !== 'cancelled');
+    const hasPendingCall = calls.some(c => c.tableId === table.id);
+
+    if (status !== 'free' || hasActiveSession || hasActiveOrders || hasPendingCall) {
+      toast.error('Esta mesa possui atendimento ativo e não pode ser excluída.');
+      return;
+    }
+
     if (!window.confirm(`Tem certeza que deseja excluir a Mesa ${table.number}?`)) return;
 
     try {

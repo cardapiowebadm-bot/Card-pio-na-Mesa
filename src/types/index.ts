@@ -22,6 +22,7 @@ export interface Restaurant {
   couvertEnabled?: boolean;
   couvertType?: 'percentage' | 'fixed';
   couvertValue?: number;
+  themeColor?: string;
 }
 
 export interface UserProfile {

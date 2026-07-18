@@ -175,6 +175,23 @@ export default function AdminSettings() {
     }
   };
 
+  const handleRestoreDefaultColor = async () => {
+    const defaultColor = '#e11d48';
+    setThemeColor(defaultColor);
+    
+    if (!userProfile?.restaurantId) return;
+    
+    try {
+      await updateDoc(doc(db, 'restaurants', userProfile.restaurantId), {
+        themeColor: defaultColor
+      });
+      toast.success('Cor padrão restaurada e salva com sucesso!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao restaurar cor padrão');
+    }
+  };
+
   // Build real digital menu URL for this restaurant
   const appUrl = window.location.origin;
   const menuUrl = `${appUrl}/menu/${userProfile?.restaurantId}`;
@@ -400,6 +417,14 @@ export default function AdminSettings() {
                     className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 uppercase"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultColor}
+                  className="mt-2 text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors"
+                >
+                  <Paintbrush className="w-3.5 h-3.5" />
+                  Restaurar Cor Padrão
+                </button>
               </div>
             </div>
           </div>
