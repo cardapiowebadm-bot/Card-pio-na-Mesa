@@ -8,10 +8,11 @@ import {
   doc, 
   updateDoc, 
   getDocs,
-  writeBatch
+  writeBatch,
+  arrayUnion
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { Table, TableSession, Order, WaiterCall } from '../types';
+import { Table, TableSession, Order, WaiterCall, Waiter } from '../types';
 import { 
   Plus, 
   Trash2, 
@@ -33,10 +34,12 @@ export default function AdminTables() {
   const [sessions, setSessions] = useState<TableSession[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [calls, setCalls] = useState<WaiterCall[]>([]);
+  const [waiters, setWaiters] = useState<Waiter[]>([]);
   
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [newTableNum, setNewTableNum] = useState('');
   const [loading, setLoading] = useState(true);
+  const [tableFilter, setTableFilter] = useState<'all' | 'mine'>(userProfile?.role === 'waiter' ? 'mine' : 'all');
 
   useEffect(() => {
     if (!userProfile?.restaurantId) return;
@@ -86,11 +89,23 @@ export default function AdminTables() {
       setCalls(items);
     });
 
+    // Load waiters
+    const qWaiters = query(
+      collection(db, 'waiters'),
+      where('restaurantId', '==', userProfile.restaurantId)
+    );
+    const unsubWaiters = onSnapshot(qWaiters, (snap) => {
+      const items: Waiter[] = [];
+      snap.forEach(d => items.push({ ...d.data(), id: d.id } as Waiter));
+      setWaiters(items);
+    });
+
     return () => {
       unsubTables();
       unsubSessions();
       unsubOrders();
       unsubCalls();
+      unsubWaiters();
     };
   }, [userProfile?.restaurantId]);
 
@@ -248,34 +263,98 @@ export default function AdminTables() {
     }
   };
 
+  // Alteração de garçom responsável
+  const handleChangeResponsibleWaiter = async (sessionId: string, currentWaiterId: string, newWaiterId: string) => {
+    const selectedWaiter = waiters.find(w => w.id === newWaiterId);
+    if (!selectedWaiter) return;
+
+    try {
+      const entry = {
+        timestamp: new Date().toISOString(),
+        action: 'Alteração de Responsável',
+        userType: (userProfile?.role as any) || 'owner',
+        userName: userProfile?.name || 'Admin',
+        details: `Alterou garçom responsável de "${waiters.find(w => w.id === currentWaiterId)?.name || 'Nenhum'}" para "${selectedWaiter.name}"`
+      };
+
+      await updateDoc(doc(db, 'tableSessions', sessionId), {
+        waiterId: selectedWaiter.id,
+        waiterName: selectedWaiter.name,
+        history: arrayUnion(entry)
+      });
+
+      toast.success(`Garçom alterado para ${selectedWaiter.name}!`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao alterar garçom responsável');
+    }
+  };
+
+  // Filter tables based on waiter assignment if option chosen
+  const filteredTables = tables.filter(table => {
+    if (tableFilter === 'mine' && userProfile?.role === 'waiter') {
+      const activeSession = sessions.find(s => s.tableId === table.id);
+      return activeSession?.waiterId === userProfile.id;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-8 animate-fade-in">
       
       {/* Title & Quick Add */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-5">
         <div>
           <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Monitor das Mesas</h2>
           <p className="text-slate-500 text-sm mt-1">Acompanhe as comandas, faturamentos e chamados das mesas em tempo real.</p>
+          
+          {/* Waiter Assignment Filters */}
+          {userProfile?.role === 'waiter' && (
+            <div className="flex bg-slate-100 p-1 rounded-xl w-fit border border-slate-200/50 mt-4">
+              <button
+                onClick={() => setTableFilter('mine')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  tableFilter === 'mine'
+                    ? 'bg-white text-slate-800 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Minhas Mesas
+              </button>
+              <button
+                onClick={() => setTableFilter('all')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  tableFilter === 'all'
+                    ? 'bg-white text-slate-800 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Todas as Mesas ({tables.length})
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Quick Add Table Form */}
-        <form onSubmit={handleAddTable} className="flex items-center gap-2">
-          <input
-            type="number"
-            min="1"
-            value={newTableNum}
-            onChange={(e) => setNewTableNum(e.target.value)}
-            placeholder="Nº da Mesa"
-            className="w-28 bg-white border border-slate-200 px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
-          />
-          <button
-            type="submit"
-            className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-sm hover:shadow flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar
-          </button>
-        </form>
+        {/* Quick Add Table Form (Owner/Manager Only) */}
+        {userProfile?.role !== 'waiter' && (
+          <form onSubmit={handleAddTable} className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              value={newTableNum}
+              onChange={(e) => setNewTableNum(e.target.value)}
+              placeholder="Nº da Mesa"
+              className="w-28 bg-white border border-slate-200 px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+            />
+            <button
+              type="submit"
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-sm hover:shadow flex items-center gap-1.5 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Adicionar
+            </button>
+          </form>
+        )}
       </div>
 
       {/* Main Grid: Left is Board of Tables, Right is Table Comanda if selected */}
@@ -284,15 +363,21 @@ export default function AdminTables() {
         {/* Tables Board Grid */}
         <div className="lg:col-span-2 space-y-6">
           
-          {tables.length === 0 ? (
+          {filteredTables.length === 0 ? (
             <div className="bg-white border border-slate-100 p-12 rounded-3xl text-center shadow-sm">
               <Coffee className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <h3 className="font-semibold text-slate-800 mb-1">Nenhuma mesa cadastrada</h3>
-              <p className="text-slate-500 text-sm">Adicione sua primeira mesa utilizando o formulário acima para iniciar os atendimentos.</p>
+              <h3 className="font-semibold text-slate-800 mb-1">
+                {tableFilter === 'mine' ? 'Nenhuma mesa sua aberta' : 'Nenhuma mesa cadastrada'}
+              </h3>
+              <p className="text-slate-500 text-sm">
+                {tableFilter === 'mine' 
+                  ? 'Abra novas mesas no modo garçom para começar a atendê-las.'
+                  : 'Nenhuma mesa disponível para exibição no momento.'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {tables.map((table) => {
+              {filteredTables.map((table) => {
                 const status = getTableStatus(table);
                 const colorClass = getStatusColor(status);
                 const activeSession = sessions.find(s => s.tableId === table.id);
@@ -307,25 +392,34 @@ export default function AdminTables() {
                   >
                     <div className="flex items-start justify-between">
                       <span className="font-display font-extrabold text-2xl">Mesa {table.number}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTable(table);
-                        }}
-                        className="text-slate-400 hover:text-red-500 p-1 rounded-lg transition-all"
-                        title="Deletar Mesa"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      
+                      {/* Delete Mesa Button (Owner/Manager Only) */}
+                      {userProfile?.role !== 'waiter' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTable(table);
+                          }}
+                          className="text-slate-400 hover:text-red-500 p-1 rounded-lg transition-all"
+                          title="Deletar Mesa"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
 
                     <div>
                       {activeSession ? (
-                        <p className="text-xs font-semibold truncate text-slate-700 mb-1">{activeSession.customerName}</p>
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-semibold truncate text-slate-700">{activeSession.customerName}</p>
+                          {activeSession.waiterName && (
+                            <p className="text-[10px] text-slate-500 font-medium truncate">Garçom: {activeSession.waiterName.split(' ')[0]}</p>
+                          )}
+                        </div>
                       ) : (
-                        <p className="text-xs font-medium text-slate-400 mb-1">Sem cliente</p>
+                        <p className="text-xs font-medium text-slate-400">Sem cliente</p>
                       )}
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/5">
+                      <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/5">
                         {getStatusLabel(status)}
                       </span>
                     </div>
@@ -422,6 +516,54 @@ export default function AdminTables() {
                         <div className="flex items-center gap-2 text-slate-400 text-[11px] pt-1 border-t border-slate-100/60">
                           <Clock className="w-3.5 h-3.5" />
                           <span>Início: {new Date(activeSession.createdAt).toLocaleTimeString('pt-BR')}</span>
+                        </div>
+                      </div>
+
+                      {/* Responsible Waiter Selector */}
+                      <div className="bg-white border border-slate-150 p-4 rounded-2xl space-y-3 shadow-sm">
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                          Garçom Responsável
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={activeSession.waiterId || ''}
+                            onChange={(e) => handleChangeResponsibleWaiter(activeSession.id, activeSession.waiterId || '', e.target.value)}
+                            className="w-full text-xs font-semibold py-2 px-3 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500 text-slate-700"
+                          >
+                            <option value="">Nenhum garçom atribuído</option>
+                            {waiters.map((w) => (
+                              <option key={w.id} value={w.id}>
+                                {w.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Comanda History */}
+                      <div className="bg-[#fafafa] border border-slate-100 p-4 rounded-2xl space-y-3">
+                        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                          Histórico da Comanda
+                        </h4>
+                        <div className="space-y-3.5 max-h-[180px] overflow-y-auto pr-1">
+                          {activeSession.history && activeSession.history.length > 0 ? (
+                            activeSession.history.map((h, i) => (
+                              <div key={i} className="text-xs border-l-2 border-rose-500 pl-3 py-0.5 space-y-0.5">
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
+                                  <span>{h.action}</span>
+                                  <span>{new Date(h.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <p className="text-slate-700 font-semibold">
+                                  {h.userName} <span className="text-[10px] font-bold text-slate-400 uppercase">({h.userType === 'waiter' ? 'Garçom' : h.userType === 'customer' ? 'Cliente' : 'Admin'})</span>
+                                </p>
+                                {h.details && (
+                                  <p className="text-slate-500 text-[11px] leading-relaxed italic">{h.details}</p>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-slate-400 text-xs italic">Nenhum histórico registrado.</p>
+                          )}
                         </div>
                       </div>
 

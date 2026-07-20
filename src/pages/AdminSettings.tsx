@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs, writeBatch, addDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { 
   QrCode, 
@@ -15,7 +15,16 @@ import {
   Link as LinkIcon,
   Loader2,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Users,
+  UserPlus,
+  Lock,
+  Check,
+  X,
+  Eye,
+  KeyRound,
+  Shield,
+  Smartphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -35,6 +44,155 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [confirmType, setConfirmType] = useState<'customers' | 'orders' | 'dashboard' | null>(null);
   const [cleaning, setCleaning] = useState(false);
+
+  // Waiter Management states
+  const [activeTab, setActiveTab] = useState<'general' | 'waiters'>('general');
+  const [waiters, setWaiters] = useState<any[]>([]);
+  const [loadingWaiters, setLoadingWaiters] = useState(false);
+  const [showWaiterModal, setShowWaiterModal] = useState(false);
+  const [editingWaiter, setEditingWaiter] = useState<any | null>(null);
+
+  const [waiterName, setWaiterName] = useState('');
+  const [waiterPhone, setWaiterPhone] = useState('');
+  const [waiterLogin, setWaiterLogin] = useState('');
+  const [waiterPasswordTemp, setWaiterPasswordTemp] = useState('');
+
+  const fetchWaiters = async () => {
+    if (!userProfile?.restaurantId) return;
+    setLoadingWaiters(true);
+    try {
+      const q = query(
+        collection(db, 'waiters'),
+        where('restaurantId', '==', userProfile.restaurantId)
+      );
+      const snap = await getDocs(q);
+      const list: any[] = [];
+      snap.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setWaiters(list);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao buscar lista de garçons');
+    } finally {
+      setLoadingWaiters(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'waiters') {
+      fetchWaiters();
+    }
+  }, [activeTab, userProfile?.restaurantId]);
+
+  const handleSaveWaiter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!waiterName.trim() || !waiterPhone.trim() || !waiterLogin.trim() || !waiterPasswordTemp.trim()) {
+      toast.error('Preencha todos os campos do garçom');
+      return;
+    }
+
+    if (!userProfile?.restaurantId) return;
+
+    try {
+      if (!editingWaiter) {
+        // Check for login duplicate in restaurant
+        const dupQuery = query(
+          collection(db, 'waiters'),
+          where('restaurantId', '==', userProfile.restaurantId),
+          where('login', '==', waiterLogin.trim())
+        );
+        const dupSnap = await getDocs(dupQuery);
+        if (!dupSnap.empty) {
+          toast.error('Este login já está em uso por outro garçom.');
+          return;
+        }
+
+        await addDoc(collection(db, 'waiters'), {
+          restaurantId: userProfile.restaurantId,
+          name: waiterName.trim(),
+          phone: waiterPhone.trim(),
+          login: waiterLogin.trim(),
+          passwordTemp: waiterPasswordTemp.trim(),
+          status: 'active',
+          isFirstAccess: true,
+          createdAt: new Date().toISOString()
+        });
+        toast.success('Garçom cadastrado com sucesso!');
+      } else {
+        const waiterRef = doc(db, 'waiters', editingWaiter.id);
+        const updateData: any = {
+          name: waiterName.trim(),
+          phone: waiterPhone.trim()
+        };
+
+        if (editingWaiter.isFirstAccess) {
+          // Check for login duplicate if login was changed
+          if (editingWaiter.login !== waiterLogin.trim()) {
+            const dupQuery = query(
+              collection(db, 'waiters'),
+              where('restaurantId', '==', userProfile.restaurantId),
+              where('login', '==', waiterLogin.trim())
+            );
+            const dupSnap = await getDocs(dupQuery);
+            if (!dupSnap.empty) {
+              toast.error('Este login já está em uso por outro garçom.');
+              return;
+            }
+          }
+          updateData.login = waiterLogin.trim();
+          updateData.passwordTemp = waiterPasswordTemp.trim();
+        }
+
+        await updateDoc(waiterRef, updateData);
+        toast.success('Garçom atualizado com sucesso!');
+      }
+
+      setShowWaiterModal(false);
+      setEditingWaiter(null);
+      setWaiterName('');
+      setWaiterPhone('');
+      setWaiterLogin('');
+      setWaiterPasswordTemp('');
+      fetchWaiters();
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar garçom');
+    }
+  };
+
+  const handleToggleWaiterStatus = async (waiter: any) => {
+    try {
+      const waiterRef = doc(db, 'waiters', waiter.id);
+      const newStatus = waiter.status === 'active' ? 'inactive' : 'active';
+      await updateDoc(waiterRef, { status: newStatus });
+      toast.success(`Garçom ${newStatus === 'active' ? 'ativado' : 'desativado'} com sucesso!`);
+      fetchWaiters();
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao alterar status do garçom');
+    }
+  };
+
+  const handleDeleteWaiter = async (waiterId: string) => {
+    if (!window.confirm('Tem certeza de que deseja excluir este garçom? Esta ação é irreversível.')) return;
+    try {
+      const waiterRef = doc(db, 'waiters', waiterId);
+      const snap = await getDoc(waiterRef);
+      if (snap.exists()) {
+        const waiterData = snap.data();
+        if (waiterData.userId) {
+          await deleteDoc(doc(db, 'users', waiterData.userId));
+        }
+      }
+      await deleteDoc(waiterRef);
+      toast.success('Garçom excluído com sucesso!');
+      fetchWaiters();
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao excluir garçom');
+    }
+  };
 
   const handleExecuteCleanup = async () => {
     if (!confirmType || !userProfile?.restaurantId) return;
@@ -324,11 +482,47 @@ export default function AdminSettings() {
       
       {/* Header */}
       <div>
-        <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Configurações Gerais</h2>
-        <p className="text-slate-500 text-sm mt-1">Gerencie a identidade visual, taxas e gere o QR Code exclusivo do estabelecimento.</p>
+        <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">
+          {activeTab === 'general' ? 'Configurações Gerais' : 'Gerenciamento de Garçons'}
+        </h2>
+        <p className="text-slate-500 text-sm mt-1">
+          {activeTab === 'general' 
+            ? 'Gerencie a identidade visual, taxas e gere o QR Code exclusivo do estabelecimento.'
+            : 'Cadastre, edite, ative/desative e controle os garçons do seu restaurante.'}
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+      {/* Tabs */}
+      <div className="flex border-b border-slate-100 gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab('general')}
+          className={`pb-3 font-semibold text-sm transition-all relative ${
+            activeTab === 'general' ? 'text-rose-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Geral
+          {activeTab === 'general' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-rose-600 rounded-full animate-fade-in" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('waiters')}
+          className={`pb-3 font-semibold text-sm transition-all relative ${
+            activeTab === 'waiters' ? 'text-rose-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Garçons
+          {activeTab === 'waiters' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-rose-600 rounded-full animate-fade-in" />
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'general' ? (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         
         {/* Form Column */}
         <form onSubmit={handleSaveSettings} className="lg:col-span-2 space-y-6">
@@ -671,6 +865,253 @@ export default function AdminSettings() {
           </div>
         </div>
       </div>
+    </>
+  ) : (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-white border border-slate-100 rounded-3xl p-6 shadow-sm gap-4">
+            <div>
+              <h3 className="font-display font-semibold text-lg text-slate-800 flex items-center gap-2">
+                <Users className="w-5 h-5 text-rose-500" />
+                Quadro de Garçons
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Gerencie as credenciais e status de acesso da equipe de atendimento.
+              </p>
+            </div>
+            <button
+              id="btn-add-waiter"
+              type="button"
+              onClick={() => {
+                setEditingWaiter(null);
+                setWaiterName('');
+                setWaiterPhone('');
+                setWaiterLogin('');
+                setWaiterPasswordTemp('');
+                setShowWaiterModal(true);
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <UserPlus className="w-4 h-4" />
+              Adicionar Garçom
+            </button>
+          </div>
+
+          {loadingWaiters ? (
+            <div className="bg-white border border-slate-100 rounded-3xl p-12 shadow-sm text-center">
+              <Loader2 className="w-8 h-8 text-rose-500 animate-spin mx-auto" />
+              <p className="text-xs font-semibold text-slate-500 mt-2">Carregando garçons...</p>
+            </div>
+          ) : waiters.length === 0 ? (
+            <div className="bg-white border border-slate-100 rounded-3xl p-12 shadow-sm text-center space-y-3">
+              <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
+                <Users className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-display font-semibold text-sm text-slate-800">Nenhum garçom cadastrado</h4>
+                <p className="text-xs text-slate-500">Cadastre garçons para que eles possam gerenciar mesas e realizar pedidos de forma integrada.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {waiters.map((waiter) => (
+                <div
+                  key={waiter.id}
+                  className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between space-y-4"
+                >
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-display font-semibold text-sm text-slate-800 truncate max-w-[150px]">
+                          {waiter.name}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">{waiter.phone}</p>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg ${
+                          waiter.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {waiter.status === 'active' ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 rounded-2xl space-y-2 border border-slate-100 text-xs">
+                      <div className="flex justify-between text-slate-500">
+                        <span>Acesso Provisório:</span>
+                        <span className="font-semibold text-slate-700 font-mono">{waiter.login}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Senha Provisória:</span>
+                        <span className="font-semibold text-slate-700 font-mono">{waiter.passwordTemp}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Primeiro Acesso:</span>
+                        <span className={`font-bold ${waiter.isFirstAccess ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {waiter.isFirstAccess ? 'Pendente' : 'Concluído'}
+                        </span>
+                      </div>
+                      {waiter.email && (
+                        <div className="flex justify-between text-slate-500 truncate pt-1 border-t border-slate-200/50">
+                          <span>E-mail Definitivo:</span>
+                          <span className="font-semibold text-slate-700 max-w-[120px] truncate" title={waiter.email}>{waiter.email}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t border-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleWaiterStatus(waiter)}
+                      className={`flex-1 text-[11px] font-bold py-2 rounded-xl transition-all border ${
+                        waiter.status === 'active'
+                          ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                          : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
+                      }`}
+                    >
+                      {waiter.status === 'active' ? 'Desativar' : 'Ativar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingWaiter(waiter);
+                        setWaiterName(waiter.name);
+                        setWaiterPhone(waiter.phone);
+                        setWaiterLogin(waiter.login);
+                        setWaiterPasswordTemp(waiter.passwordTemp);
+                        setShowWaiterModal(true);
+                      }}
+                      className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-[11px] py-2 px-3 rounded-xl transition-all"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteWaiter(waiter.id)}
+                      className="bg-rose-50 hover:bg-rose-100 border border-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl transition-all"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Waiter Create/Edit Modal */}
+          {showWaiterModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <form
+                onSubmit={handleSaveWaiter}
+                className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl border border-slate-100 animate-fade-in space-y-4"
+              >
+                <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                  <h3 className="font-display font-bold text-lg text-slate-800">
+                    {editingWaiter ? 'Editar Garçom' : 'Cadastrar Novo Garçom'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowWaiterModal(false);
+                      setEditingWaiter(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={waiterName}
+                      onChange={(e) => setWaiterName(e.target.value)}
+                      placeholder="Ex: João Silva"
+                      className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Telefone *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={waiterPhone}
+                      onChange={(e) => setWaiterPhone(e.target.value)}
+                      placeholder="Ex: (11) 99999-9999"
+                      className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Login Temporário *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      disabled={editingWaiter && !editingWaiter.isFirstAccess}
+                      value={waiterLogin}
+                      onChange={(e) => setWaiterLogin(e.target.value)}
+                      placeholder="Ex: joao.garcom"
+                      className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    {editingWaiter && !editingWaiter.isFirstAccess && (
+                      <p className="text-[10px] text-slate-400 mt-1">O login provisório não pode ser alterado após o primeiro acesso.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Senha Temporária *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      disabled={editingWaiter && !editingWaiter.isFirstAccess}
+                      value={waiterPasswordTemp}
+                      onChange={(e) => setWaiterPasswordTemp(e.target.value)}
+                      placeholder="Ex: 123456"
+                      className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    {editingWaiter && !editingWaiter.isFirstAccess && (
+                      <p className="text-[10px] text-slate-400 mt-1">A senha provisória não pode ser alterada após o primeiro acesso.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t border-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowWaiterModal(false);
+                      setEditingWaiter(null);
+                    }}
+                    className="flex-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-semibold text-xs py-2.5 rounded-xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs py-2.5 rounded-xl shadow-sm hover:shadow transition-all"
+                  >
+                    Salvar Garçom
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modal de Confirmação de Exclusão */}
       {confirmType && (

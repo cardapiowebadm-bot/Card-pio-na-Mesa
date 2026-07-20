@@ -9,6 +9,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import WaiterSetupPage from './pages/WaiterSetupPage';
 import AdminLayout from './pages/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminTables from './pages/AdminTables';
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/waiter/setup" element={<WaiterSetupPage />} />
 
           {/* Admin Routes with Protections & RBAC */}
           <Route 

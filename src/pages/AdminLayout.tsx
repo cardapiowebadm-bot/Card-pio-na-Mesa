@@ -107,6 +107,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return unsubscribe;
   }, [userProfile?.restaurantId, loading]);
 
+  // Security route guard based on role
+  useEffect(() => {
+    if (loading) return;
+    if (!userProfile) return;
+
+    const currentPath = location.pathname;
+    const matchedItem = [
+      { to: "/admin", allowedRoles: ['owner', 'manager'] },
+      { to: "/admin/tables", allowedRoles: ['owner', 'manager', 'waiter'] },
+      { to: "/admin/orders", allowedRoles: ['owner', 'manager', 'waiter', 'cozinha'] },
+      { to: "/admin/products", allowedRoles: ['owner', 'manager'] },
+      { to: "/admin/categories", allowedRoles: ['owner', 'manager'] },
+      { to: "/admin/customers", allowedRoles: ['owner', 'manager', 'waiter'] },
+      { to: "/admin/settings", allowedRoles: ['owner', 'manager'] }
+    ].find(item => item.to === currentPath);
+
+    if (matchedItem && !matchedItem.allowedRoles.includes(userProfile.role)) {
+      if (userProfile.role === 'waiter') {
+        navigate('/admin/tables');
+      } else if (userProfile.role === 'cozinha') {
+        navigate('/admin/orders');
+      } else {
+        navigate('/');
+      }
+    }
+  }, [location.pathname, userProfile, loading, navigate]);
+
   const handleMarkAllRead = async () => {
     try {
       for (const n of notifications) {

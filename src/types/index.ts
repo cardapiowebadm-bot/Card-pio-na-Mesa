@@ -66,6 +66,14 @@ export interface Table {
   createdAt: any;
 }
 
+export interface TableSessionHistoryEntry {
+  timestamp: string;
+  action: string;
+  userType: 'customer' | 'waiter' | 'owner' | 'manager';
+  userName: string;
+  details?: string;
+}
+
 export interface TableSession {
   id: string;
   tableId: string;
@@ -79,6 +87,10 @@ export interface TableSession {
   closedAt?: any;
   paymentMethod?: 'pix' | 'card';
   paymentStatus?: 'pending' | 'paid';
+  waiterId?: string;
+  waiterName?: string;
+  createdBy?: 'customer' | 'waiter';
+  history?: TableSessionHistoryEntry[];
 }
 
 export interface OrderItem {
@@ -108,6 +120,23 @@ export interface Order {
   updatedAt: any;
   customerName: string;
   customerPhone: string;
+  createdBy?: 'customer' | 'waiter';
+  waiterId?: string;
+  waiterName?: string;
+}
+
+export interface Waiter {
+  id: string;
+  restaurantId: string;
+  name: string;
+  phone: string;
+  login: string;
+  passwordTemp: string;
+  status: 'active' | 'inactive';
+  isFirstAccess: boolean;
+  email?: string;
+  userId?: string;
+  createdAt: string;
 }
 
 export interface WaiterCall {

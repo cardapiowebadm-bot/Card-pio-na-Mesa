@@ -6,9 +6,11 @@ import * as zod from 'zod';
 import { useAuth } from '../contexts/AuthContext';
 import { ChefHat, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 const loginSchema = zod.object({
-  email: zod.string().email('Por favor, informe um e-mail válido'),
+  email: zod.string().min(3, 'Por favor, informe um e-mail válido ou login temporário'),
   password: zod.string().min(6, 'A senha deve conter no mínimo 6 caracteres')
 });
 
@@ -29,9 +31,43 @@ export default function LoginPage() {
     setLoading(true);
     setOperationNotAllowedError(false);
     try {
-      await signIn(data.email, data.password);
-      toast.success('Login realizado com sucesso!');
-      navigate('/admin');
+      const isEmail = data.email.includes('@');
+      if (isEmail) {
+        await signIn(data.email, data.password);
+        toast.success('Login realizado com sucesso!');
+        navigate('/admin');
+      } else {
+        // Waiter temporary login verification
+        const q = query(
+          collection(db, 'waiters'),
+          where('login', '==', data.email.trim())
+        );
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          toast.error('Usuário ou senha incorretos.');
+          return;
+        }
+
+        const waiterDoc = snap.docs[0];
+        const waiterData = waiterDoc.data();
+
+        if (waiterData.status === 'inactive') {
+          toast.error('Este usuário está desativado pelo administrador.');
+          return;
+        }
+
+        if (waiterData.passwordTemp !== data.password) {
+          toast.error('Usuário ou senha incorretos.');
+          return;
+        }
+
+        if (waiterData.isFirstAccess) {
+          toast.success('Primeiro acesso detectado! Vamos definir suas credenciais definitivas.');
+          navigate(`/waiter/setup?waiterId=${waiterDoc.id}`);
+        } else {
+          toast.error('Seu cadastro já foi concluído. Por favor, faça login utilizando seu e-mail cadastrado.');
+        }
+      }
     } catch (error: any) {
       console.error(error);
       let errorMsg = 'Falha ao realizar login. Verifique suas credenciais.';

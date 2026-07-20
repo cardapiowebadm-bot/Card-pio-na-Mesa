@@ -281,8 +281,21 @@ export default function AdminOrders() {
                   </div>
 
                   {/* Customer context */}
-                  <div className="bg-[#fafafa] border border-slate-100 px-3 py-2 rounded-xl text-xs text-slate-600 font-semibold mb-4">
-                    Cliente: {order.customerName}
+                  <div className="bg-[#fafafa] border border-slate-100 px-3 py-2 rounded-xl text-xs text-slate-600 font-semibold mb-4 flex flex-col gap-1">
+                    <div>Cliente: {order.customerName}</div>
+                    {order.createdBy === 'waiter' ? (
+                      <div className="text-[10px] text-blue-600 font-bold flex items-center gap-1 mt-0.5">
+                        <span className="bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 uppercase tracking-wider text-[9px]">Garçom</span>
+                        <span>{order.waiterName || 'Garçom Responsável'}</span>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-amber-600 font-bold flex items-center gap-1 mt-0.5">
+                        <span className="bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-wider text-[9px]">Cliente</span>
+                        {order.waiterName && (
+                          <span className="text-slate-400 font-normal">({order.waiterName})</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Items List */}

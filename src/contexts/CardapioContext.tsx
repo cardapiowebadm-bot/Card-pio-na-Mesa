@@ -10,11 +10,13 @@ import {
   query, 
   where, 
   onSnapshot,
-  orderBy
+  orderBy,
+  arrayUnion
 } from 'firebase/firestore';
 import { useParams } from 'react-router-dom';
 import { db } from '../services/firebase';
 import { Restaurant, Product, Category, TableSession, Order, OrderItem, WaiterCall } from '../types';
+import { useAuth } from './AuthContext';
 
 interface CartItem extends OrderItem {
   imageUrl?: string;
@@ -32,7 +34,22 @@ interface CardapioContextType {
   loading: boolean;
   error: string | null;
   loadRestaurantData: (restaurantId: string) => Promise<void>;
-  startSession: (tableNumber: number, customerOrName: { name: string; phone: string; cpf?: string } | string, phone?: string, cpf?: string) => Promise<void>;
+  startSession: (
+    tableNumber: number, 
+    customerOrName: { 
+      name: string; 
+      phone: string; 
+      cpf?: string; 
+      waiterId?: string; 
+      waiterName?: string; 
+      createdBy?: 'customer' | 'waiter';
+    } | string, 
+    phone?: string, 
+    cpf?: string,
+    waiterId?: string,
+    waiterName?: string,
+    createdBy?: 'customer' | 'waiter'
+  ) => Promise<void>;
   checkoutCart: (itemsWithNotes?: CartItem[]) => Promise<void>;
   checkCustomerByCpf: (cpf: string) => Promise<{ name: string; phone: string } | null>;
   addToCart: (product: Product, quantity?: number, notes?: string) => void;
@@ -43,6 +60,7 @@ interface CardapioContextType {
   callWaiter: (reason: 'water' | 'napkin' | 'service' | 'bill' | 'other') => Promise<void>;
   requestPayment: (method: 'pix' | 'card') => Promise<void>;
   closeSessionLocal: () => void;
+  joinSession: (session: TableSession) => void;
 }
 
 const CardapioContext = createContext<CardapioContextType | undefined>(undefined);
@@ -57,6 +75,7 @@ export function useCardapio() {
 
 export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { restaurantId } = useParams<{ restaurantId: string }>();
+  const { userProfile } = useAuth();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -273,14 +292,31 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const startSession = async (
     tableNumber: number, 
-    customerOrName: { name: string; phone: string; cpf?: string } | string,
+    customerOrName: { 
+      name: string; 
+      phone: string; 
+      cpf?: string; 
+      waiterId?: string; 
+      waiterName?: string; 
+      createdBy?: 'customer' | 'waiter';
+    } | string,
     phone?: string,
-    cpf?: string
+    cpf?: string,
+    waiterId?: string,
+    waiterName?: string,
+    createdBy?: 'customer' | 'waiter'
   ) => {
     if (!restaurant) throw new Error('Restaurante não carregado');
 
     const customer = typeof customerOrName === 'string'
-      ? { name: customerOrName, phone: phone || '', cpf }
+      ? { 
+          name: customerOrName, 
+          phone: phone || '', 
+          cpf,
+          waiterId,
+          waiterName,
+          createdBy
+        }
       : customerOrName;
 
     setLoading(true);
@@ -321,13 +357,32 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         newSession.customerCpf = customer.cpf.replace(/\D/g, '');
       }
 
+      // Add waiter fields if present
+      if (customer.waiterId) newSession.waiterId = customer.waiterId;
+      if (customer.waiterName) newSession.waiterName = customer.waiterName;
+      if (customer.createdBy) newSession.createdBy = customer.createdBy;
+
+      newSession.history = [
+        {
+          timestamp: new Date().toISOString(),
+          action: 'Abertura de Mesa',
+          userType: customer.createdBy === 'waiter' ? 'waiter' : 'customer',
+          userName: customer.createdBy === 'waiter' ? (customer.waiterName || 'Garçom') : customer.name,
+          details: customer.createdBy === 'waiter'
+            ? `Mesa aberta pelo Garçom ${customer.waiterName} para o cliente ${customer.name}`
+            : `Mesa aberta pelo cliente ${customer.name}`
+        }
+      ];
+
       await setDoc(sessionRef, newSession);
 
       // Create internal notification
       await addDoc(collection(db, 'notifications'), {
         restaurantId: restaurant.id,
         type: 'waiter_call',
-        message: `Cliente ${customer.name} abriu atendimento na Mesa ${tableNumber}`,
+        message: customer.createdBy === 'waiter'
+          ? `Garçom ${customer.waiterName} abriu comanda na Mesa ${tableNumber}`
+          : `Cliente ${customer.name} abriu atendimento na Mesa ${tableNumber}`,
         status: 'unread',
         referenceId: sessionRef.id,
         tableNumber,
@@ -442,7 +497,36 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         customerPhone: activeTableSession.customerPhone
       };
 
+      // Set waiter tracking properties dynamically
+      if (userProfile && userProfile.role === 'waiter') {
+        newOrder.createdBy = 'waiter';
+        newOrder.waiterId = userProfile.id;
+        newOrder.waiterName = userProfile.name;
+      } else {
+        newOrder.createdBy = 'customer';
+        if (activeTableSession.waiterId) {
+          newOrder.waiterId = activeTableSession.waiterId;
+          newOrder.waiterName = activeTableSession.waiterName;
+        }
+      }
+
       await setDoc(orderRef, newOrder);
+
+      // Record in table session history
+      try {
+        const sessionDocRef = doc(db, 'tableSessions', activeTableSession.id);
+        await updateDoc(sessionDocRef, {
+          history: arrayUnion({
+            timestamp: new Date().toISOString(),
+            action: 'Pedido Realizado',
+            userType: newOrder.createdBy === 'waiter' ? 'waiter' : 'customer',
+            userName: newOrder.createdBy === 'waiter' ? (newOrder.waiterName || 'Garçom') : activeTableSession.customerName,
+            details: `Realizou o pedido #${orderRef.id.substring(0, 5).toUpperCase()} no total de R$ ${total.toFixed(2)}.`
+          })
+        });
+      } catch (historyErr) {
+        console.error('Failed to append to history', historyErr);
+      }
 
       // Create notification
       await addDoc(collection(db, 'notifications'), {
@@ -527,7 +611,36 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         customerPhone: activeTableSession.customerPhone
       };
 
+      // Set waiter tracking properties dynamically
+      if (userProfile && userProfile.role === 'waiter') {
+        newOrder.createdBy = 'waiter';
+        newOrder.waiterId = userProfile.id;
+        newOrder.waiterName = userProfile.name;
+      } else {
+        newOrder.createdBy = 'customer';
+        if (activeTableSession.waiterId) {
+          newOrder.waiterId = activeTableSession.waiterId;
+          newOrder.waiterName = activeTableSession.waiterName;
+        }
+      }
+
       await setDoc(orderRef, newOrder);
+
+      // Record in table session history
+      try {
+        const sessionDocRef = doc(db, 'tableSessions', activeTableSession.id);
+        await updateDoc(sessionDocRef, {
+          history: arrayUnion({
+            timestamp: new Date().toISOString(),
+            action: 'Pedido Realizado',
+            userType: newOrder.createdBy === 'waiter' ? 'waiter' : 'customer',
+            userName: newOrder.createdBy === 'waiter' ? (newOrder.waiterName || 'Garçom') : activeTableSession.customerName,
+            details: `Realizou o pedido #${orderRef.id.substring(0, 5).toUpperCase()} no total de R$ ${total.toFixed(2)}.`
+          })
+        });
+      } catch (historyErr) {
+        console.error('Failed to append to history', historyErr);
+      }
 
       // Create notification
       await addDoc(collection(db, 'notifications'), {
@@ -656,6 +769,11 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const joinSession = (session: TableSession) => {
+    setActiveTableSession(session);
+    setCart([]);
+  };
+
   return (
     <CardapioContext.Provider value={{
       restaurant,
@@ -679,7 +797,8 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       sendOrder,
       callWaiter,
       requestPayment,
-      closeSessionLocal
+      closeSessionLocal,
+      joinSession
     }}>
       {children}
     </CardapioContext.Provider>

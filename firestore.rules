@@ -91,6 +91,13 @@ service cloud.firestore {
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && getUserData().role == 'owner';
     }
 
+    // Waiters
+    match /waiters/{waiterId} {
+      allow read: if true; // Publicly readable for validation during login/first access
+      allow create, update: if isLoggedIn() && isMemberOf(request.resource.data.restaurantId);
+      allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && (getUserData().role == 'owner' || getUserData().role == 'manager');
+    }
+
     // Notifications
     match /notifications/{notificationId} {
       allow read: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
