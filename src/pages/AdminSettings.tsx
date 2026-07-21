@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { doc, updateDoc, collection, query, where, getDocs, writeBatch, addDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db, firebaseConfig } from '../services/firebase';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateEmail, updatePassword, signOut } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateEmail, updatePassword, signOut, setPersistence, inMemoryPersistence } from 'firebase/auth';
 import { 
   QrCode, 
   Download, 
@@ -100,127 +100,131 @@ export default function AdminSettings() {
       // Initialize secondary auth safely
       const secondaryApp = getApps().find(app => app.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
       const secondaryAuth = getAuth(secondaryApp);
+      await setPersistence(secondaryAuth, inMemoryPersistence);
+
+      const normalizedLogin = waiterLogin.trim().toLowerCase();
 
       if (!editingWaiter) {
-        // Check for login duplicate in restaurant
-        const dupQuery = query(
-          collection(db, 'waiters'),
-          where('restaurantId', '==', userProfile.restaurantId),
-          where('login', '==', waiterLogin.trim())
-        );
-        const dupSnap = await getDocs(dupQuery);
-        if (!dupSnap.empty) {
-          toast.error('Este login já está em uso por outro garçom.');
-          return;
-        }
+         // Check for login duplicate in restaurant
+         const dupQuery = query(
+           collection(db, 'waiters'),
+           where('restaurantId', '==', userProfile.restaurantId),
+           where('login', '==', normalizedLogin)
+         );
+         const dupSnap = await getDocs(dupQuery);
+         if (!dupSnap.empty) {
+           toast.error('Este login já está em uso por outro garçom.');
+           return;
+         }
 
-        const tempEmail = `${waiterLogin.trim()}@temp.cardapionamesa.com`;
-        
-        // Create user in secondary Auth
-        const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, tempEmail, waiterPasswordTemp.trim());
-        const authUid = authUserCred.user.uid;
+         const tempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
+         
+         // Create user in secondary Auth
+         const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, tempEmail, waiterPasswordTemp.trim());
+         const authUid = authUserCred.user.uid;
 
-        const waiterDocRef = await addDoc(collection(db, 'waiters'), {
-          restaurantId: userProfile.restaurantId,
-          name: waiterName.trim(),
-          phone: waiterPhone.trim(),
-          login: waiterLogin.trim(),
-          passwordTemp: waiterPasswordTemp.trim(),
-          status: 'active',
-          isFirstAccess: true,
-          userId: authUid,
-          createdAt: new Date().toISOString()
-        });
+         const waiterDocRef = await addDoc(collection(db, 'waiters'), {
+           restaurantId: userProfile.restaurantId,
+           name: waiterName.trim(),
+           phone: waiterPhone.trim(),
+           login: normalizedLogin,
+           passwordTemp: waiterPasswordTemp.trim(),
+           status: 'active',
+           isFirstAccess: true,
+           userId: authUid,
+           createdAt: new Date().toISOString()
+         });
 
-        // Create profile in users collection
-        await setDoc(doc(db, 'users', authUid), {
-          id: authUid,
-          name: waiterName.trim(),
-          email: tempEmail,
-          role: 'waiter',
-          restaurantId: userProfile.restaurantId,
-          waiterDocId: waiterDocRef.id,
-          createdAt: new Date().toISOString()
-        });
+         // Create profile in users collection
+         await setDoc(doc(db, 'users', authUid), {
+           id: authUid,
+           name: waiterName.trim(),
+           email: tempEmail,
+           role: 'waiter',
+           restaurantId: userProfile.restaurantId,
+           waiterDocId: waiterDocRef.id,
+           createdAt: new Date().toISOString()
+         });
 
-        // Sign out secondary auth so it doesn't hold state
-        await secondaryAuth.signOut();
+         // Sign out secondary auth so it doesn't hold state
+         await secondaryAuth.signOut();
 
-        toast.success('Garçom cadastrado com sucesso!');
-      } else {
-        const waiterRef = doc(db, 'waiters', editingWaiter.id);
-        const updateData: any = {
-          name: waiterName.trim(),
-          phone: waiterPhone.trim()
-        };
+         toast.success('Garçom cadastrado com sucesso!');
+       } else {
+         const waiterRef = doc(db, 'waiters', editingWaiter.id);
+         const updateData: any = {
+           name: waiterName.trim(),
+           phone: waiterPhone.trim()
+         };
 
-        if (editingWaiter.isFirstAccess) {
-          // Check for login duplicate if login was changed
-          if (editingWaiter.login !== waiterLogin.trim()) {
-            const dupQuery = query(
-              collection(db, 'waiters'),
-              where('restaurantId', '==', userProfile.restaurantId),
-              where('login', '==', waiterLogin.trim())
-            );
-            const dupSnap = await getDocs(dupQuery);
-            if (!dupSnap.empty) {
-              toast.error('Este login já está em uso por outro garçom.');
-              return;
-            }
-          }
-          updateData.login = waiterLogin.trim();
-          updateData.passwordTemp = waiterPasswordTemp.trim();
+         if (editingWaiter.isFirstAccess) {
+           // Check for login duplicate if login was changed
+           const oldNormalizedLogin = (editingWaiter.login || '').trim().toLowerCase();
+           if (oldNormalizedLogin !== normalizedLogin) {
+             const dupQuery = query(
+               collection(db, 'waiters'),
+               where('restaurantId', '==', userProfile.restaurantId),
+               where('login', '==', normalizedLogin)
+             );
+             const dupSnap = await getDocs(dupQuery);
+             if (!dupSnap.empty) {
+               toast.error('Este login já está em uso por outro garçom.');
+               return;
+             }
+           }
+           updateData.login = normalizedLogin;
+           updateData.passwordTemp = waiterPasswordTemp.trim();
 
-          // Also update secondary auth credentials
-          try {
-            const oldTempEmail = `${editingWaiter.login}@temp.cardapionamesa.com`;
-            const oldPassword = editingWaiter.passwordTemp;
-            const newTempEmail = `${waiterLogin.trim()}@temp.cardapionamesa.com`;
-            const newPassword = waiterPasswordTemp.trim();
+           // Also update secondary auth credentials
+           try {
+             const oldTempEmail = `${oldNormalizedLogin}@temp.cardapionamesa.com`;
+             const oldPassword = editingWaiter.passwordTemp;
+             const newTempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
+             const newPassword = waiterPasswordTemp.trim();
 
-            const cred = await signInWithEmailAndPassword(secondaryAuth, oldTempEmail, oldPassword);
-            const user = cred.user;
+             const cred = await signInWithEmailAndPassword(secondaryAuth, oldTempEmail, oldPassword);
+             const user = cred.user;
 
-            if (oldTempEmail !== newTempEmail) {
-              await updateEmail(user, newTempEmail);
-            }
-            if (oldPassword !== newPassword) {
-              await updatePassword(user, newPassword);
-            }
+             if (oldTempEmail !== newTempEmail) {
+               await updateEmail(user, newTempEmail);
+             }
+             if (oldPassword !== newPassword) {
+               await updatePassword(user, newPassword);
+             }
 
-            // Update user profile in users collection
-            await updateDoc(doc(db, 'users', user.uid), {
-              email: newTempEmail,
-              name: waiterName.trim()
-            });
+             // Update user profile in users collection
+             await updateDoc(doc(db, 'users', user.uid), {
+               email: newTempEmail,
+               name: waiterName.trim()
+             });
 
-            await secondaryAuth.signOut();
-          } catch (authErr) {
-            console.error('Error updating waiter credentials in Auth:', authErr);
-            // If it fails because user didn't exist in Auth (legacy waiter), let's create it!
-            try {
-              const newTempEmail = `${waiterLogin.trim()}@temp.cardapionamesa.com`;
-              const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, newTempEmail, waiterPasswordTemp.trim());
-              const authUid = authUserCred.user.uid;
-              
-              updateData.userId = authUid;
+             await secondaryAuth.signOut();
+           } catch (authErr) {
+             console.error('Error updating waiter credentials in Auth:', authErr);
+             // If it fails because user didn't exist in Auth (legacy waiter), let's create it!
+             try {
+               const newTempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
+               const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, newTempEmail, waiterPasswordTemp.trim());
+               const authUid = authUserCred.user.uid;
+               
+               updateData.userId = authUid;
 
-              await setDoc(doc(db, 'users', authUid), {
-                id: authUid,
-                name: waiterName.trim(),
-                email: newTempEmail,
-                role: 'waiter',
-                restaurantId: userProfile.restaurantId,
-                waiterDocId: editingWaiter.id,
-                createdAt: new Date().toISOString()
-              });
+               await setDoc(doc(db, 'users', authUid), {
+                 id: authUid,
+                 name: waiterName.trim(),
+                 email: newTempEmail,
+                 role: 'waiter',
+                 restaurantId: userProfile.restaurantId,
+                 waiterDocId: editingWaiter.id,
+                 createdAt: new Date().toISOString()
+               });
 
-              await secondaryAuth.signOut();
-            } catch (createErr) {
-              console.error('Failed to recreate auth user for legacy waiter:', createErr);
-            }
-          }
-        } else {
+               await secondaryAuth.signOut();
+             } catch (createErr) {
+               console.error('Failed to recreate auth user for legacy waiter:', createErr);
+             }
+           }
+         } else {
           // If they already completed first access, update their name in users collection
           if (editingWaiter.userId) {
             await updateDoc(doc(db, 'users', editingWaiter.userId), {

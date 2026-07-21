@@ -34,14 +34,15 @@ export default function LoginPage() {
     try {
       const isEmail = data.email.includes('@');
       if (isEmail) {
-        await signIn(data.email, data.password);
+        await signIn(data.email.trim(), data.password);
         toast.success('Login realizado com sucesso!');
         navigate('/admin');
       } else {
+        const normalizedLogin = data.email.trim().toLowerCase();
         // Waiter temporary login verification
         const q = query(
           collection(db, 'waiters'),
-          where('login', '==', data.email.trim())
+          where('login', '==', normalizedLogin)
         );
         const snap = await getDocs(q);
         if (snap.empty) {
@@ -58,7 +59,7 @@ export default function LoginPage() {
         }
 
         if (waiterData.isFirstAccess) {
-          const tempEmail = `${data.email.trim()}@temp.cardapionamesa.com`;
+          const tempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
           try {
             // Attempt to authenticate using Firebase Auth
             await signIn(tempEmail, data.password);
@@ -145,7 +146,7 @@ export default function LoginPage() {
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-                Endereço de E-mail
+                E-mail ou Login Temporário
               </label>
               <div className="mt-1.5 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -153,13 +154,13 @@ export default function LoginPage() {
                 </div>
                 <input
                   id="email"
-                  type="email"
+                  type="text"
                   autoComplete="email"
                   {...register('email')}
                   className={`block w-full pl-10 pr-3 py-2.5 bg-slate-50 border ${
                     errors.email ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-slate-200 focus:ring-rose-500 focus:border-rose-500'
                   } rounded-xl text-sm transition-all focus:outline-none focus:ring-2`}
-                  placeholder="seuemail@exemplo.com"
+                  placeholder="seuemail@exemplo.com ou login_do_garcom"
                 />
               </div>
               {errors.email && (
