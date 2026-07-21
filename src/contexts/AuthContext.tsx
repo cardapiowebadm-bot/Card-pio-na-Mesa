@@ -83,7 +83,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const user = cred.user;
+      setCurrentUser(user);
+
+      // Pre-fetch the user profile and restaurant details immediately during signIn
+      // to avoid race conditions, redirect loops, or getting stuck in loading states
+      const profileRef = doc(db, 'users', user.uid);
+      const profileSnap = await getDoc(profileRef);
+      
+      if (profileSnap.exists()) {
+        const pData = profileSnap.data() as UserProfile;
+        setUserProfile({ ...pData, id: user.uid });
+
+        if (pData.restaurantId) {
+          const restRef = doc(db, 'restaurants', pData.restaurantId);
+          const restSnap = await getDoc(restRef);
+          if (restSnap.exists()) {
+            setRestaurant({ ...(restSnap.data() as Restaurant), id: pData.restaurantId });
+          }
+        }
+      } else {
+        setUserProfile(null);
+        setRestaurant(null);
+      }
+      setLoading(false);
     } catch (err) {
       setLoading(false);
       throw err;

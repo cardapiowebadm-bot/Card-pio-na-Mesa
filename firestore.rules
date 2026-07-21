@@ -11,14 +11,19 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // Helper: Check if user has profile data
+    function hasUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     // Helper: Check if user belongs to the target restaurant
     function isMemberOf(restaurantId) {
-      return isLoggedIn() && getUserData().restaurantId == restaurantId;
+      return isLoggedIn() && hasUserData() && getUserData().restaurantId == restaurantId;
     }
 
     // Helper: Check user role
     function hasRole(role) {
-      return isLoggedIn() && getUserData().role == role;
+      return isLoggedIn() && hasUserData() && getUserData().role == role;
     }
 
     // Restaurants
@@ -37,12 +42,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isLoggedIn() && (
         request.auth.uid == userId || 
-        getUserData().restaurantId == resource.data.restaurantId
+        (request.auth.uid != userId && hasUserData() && getUserData().restaurantId == resource.data.restaurantId)
       );
       allow create: if isLoggedIn();
       allow update, delete: if isLoggedIn() && (
         request.auth.uid == userId || 
-        (getUserData().restaurantId == resource.data.restaurantId && (getUserData().role == 'owner' || getUserData().role == 'manager'))
+        (request.auth.uid != userId && hasUserData() && getUserData().restaurantId == resource.data.restaurantId && (getUserData().role == 'owner' || getUserData().role == 'manager'))
       );
     }
 
@@ -63,22 +68,43 @@ service cloud.firestore {
     // Tables
     match /tables/{tableId} {
       allow read: if true; // Publicly readable to select table
-      allow create, update: if isLoggedIn() && isMemberOf(request.resource.data.restaurantId);
+      allow create: if (isLoggedIn() && isMemberOf(request.resource.data.restaurantId)) || 
+                     (request.resource.data.status == 'occupied' && 
+                      request.resource.data.keys().hasAll(['id', 'number', 'status', 'restaurantId', 'createdAt']) &&
+                      exists(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)));
+      allow update: if (isLoggedIn() && isMemberOf(resource.data.restaurantId)) || 
+                     (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && (
+                       (resource.data.status == 'free' && request.resource.data.status == 'occupied') ||
+                       (resource.data.status == 'occupied' && request.resource.data.status in ['calling', 'billing']) ||
+                       (resource.data.status == 'calling' && request.resource.data.status in ['occupied', 'billing']) ||
+                       (resource.data.status == 'billing' && request.resource.data.status in ['occupied', 'calling'])
+                     ));
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
     }
 
     // Table Sessions
     match /tableSessions/{sessionId} {
       allow read: if true; // Publicly readable to track current table session
-      allow create: if true; // Customers can create a session
-      allow update: if true; // Customers can request payment or close, admins can manage
+      allow create: if (isLoggedIn() && isMemberOf(request.resource.data.restaurantId)) ||
+                     (request.resource.data.status == 'active' && 
+                      request.resource.data.keys().hasAll(['id', 'tableId', 'tableNumber', 'restaurantId', 'customerName', 'customerPhone', 'status', 'createdAt']) &&
+                      get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId);
+      allow update: if (isLoggedIn() && isMemberOf(resource.data.restaurantId)) ||
+                     (resource.data.status == 'active' &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethod', 'paymentStatus']) && 
+                      request.resource.data.paymentStatus == 'pending' && 
+                      request.resource.data.paymentMethod in ['pix', 'card']);
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
     }
 
     // Orders
     match /orders/{orderId} {
       allow read: if true; // Publicly readable to track own order status
-      allow create: if true; // Customers can place orders
+      allow create: if (isLoggedIn() && isMemberOf(request.resource.data.restaurantId)) ||
+                     (request.resource.data.status == 'pending' && 
+                      request.resource.data.keys().hasAll(['id', 'tableSessionId', 'tableId', 'tableNumber', 'restaurantId', 'items', 'subtotal', 'serviceTax', 'total', 'status', 'createdAt', 'updatedAt', 'customerName', 'customerPhone']) &&
+                      get(/databases/$(database)/documents/tableSessions/$(request.resource.data.tableSessionId)).data.restaurantId == request.resource.data.restaurantId &&
+                      get(/databases/$(database)/documents/tableSessions/$(request.resource.data.tableSessionId)).data.status == 'active');
       allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId); // Only employees can update order status
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && getUserData().role == 'owner';
     }
@@ -86,7 +112,12 @@ service cloud.firestore {
     // Waiter Calls
     match /waiterCalls/{callId} {
       allow read: if true; // Publicly readable to check call status
-      allow create: if true; // Customers can call waiter
+      allow create: if (isLoggedIn() && isMemberOf(request.resource.data.restaurantId)) ||
+                     (request.resource.data.status == 'pending' && 
+                      request.resource.data.keys().hasAll(['id', 'tableSessionId', 'tableId', 'tableNumber', 'restaurantId', 'reason', 'status', 'createdAt']) &&
+                      request.resource.data.reason in ['water', 'napkin', 'service', 'bill', 'other'] &&
+                      get(/databases/$(database)/documents/tableSessions/$(request.resource.data.tableSessionId)).data.restaurantId == request.resource.data.restaurantId &&
+                      get(/databases/$(database)/documents/tableSessions/$(request.resource.data.tableSessionId)).data.status == 'active');
       allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId); // Employees can resolve calls
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId) && getUserData().role == 'owner';
     }
@@ -101,7 +132,10 @@ service cloud.firestore {
     // Notifications
     match /notifications/{notificationId} {
       allow read: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
-      allow create: if true; // Frontend can create notifications
+      allow create: if (isLoggedIn() && isMemberOf(request.resource.data.restaurantId)) ||
+                     (request.resource.data.status == 'unread' && 
+                      request.resource.data.keys().hasAll(['restaurantId', 'type', 'message', 'status', 'referenceId', 'tableNumber', 'createdAt']) &&
+                      request.resource.data.type in ['new_order', 'waiter_call', 'payment_request']);
       allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
     }

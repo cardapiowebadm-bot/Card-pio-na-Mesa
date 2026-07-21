@@ -321,8 +321,21 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setLoading(true);
     try {
-      // 1. Create or reference the Table document/status
       const tableId = `${restaurant.id}_table_${tableNumber}`;
+
+      // Check if there is already an active session for this table in this restaurant
+      const activeSessionQuery = query(
+        collection(db, 'tableSessions'),
+        where('tableId', '==', tableId),
+        where('restaurantId', '==', restaurant.id),
+        where('status', '==', 'active')
+      );
+      const activeSessionSnap = await getDocs(activeSessionQuery);
+      if (!activeSessionSnap.empty) {
+        throw new Error('Esta mesa já possui uma comanda ativa.');
+      }
+
+      // 1. Create or reference the Table document/status
       const tableRef = doc(db, 'tables', tableId);
       const tableSnap = await getDoc(tableRef);
 

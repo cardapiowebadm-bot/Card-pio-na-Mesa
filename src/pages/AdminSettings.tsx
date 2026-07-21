@@ -550,6 +550,7 @@ export default function AdminSettings() {
   const handleDownloadPNG = async () => {
     try {
       const response = await fetch(qrCodeApiUrl);
+      if (!response.ok) throw new Error('CORS or Network issue');
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -562,7 +563,9 @@ export default function AdminSettings() {
       toast.success('QR Code baixado!');
     } catch (err) {
       console.error(err);
-      toast.error('Erro ao baixar imagem');
+      // Fallback for mobile devices or CORS limitations: open QR code image in a new window/tab
+      toast.success('Abrindo QR Code em uma nova guia. Pressione e segure para salvar!');
+      window.open(qrCodeApiUrl, '_blank');
     }
   };
 

@@ -32,6 +32,18 @@ export default function CardapioWelcome() {
     }
   }, [activeSession, restaurantId, navigate]);
 
+  // Support pre-filled table number from URL query parameters (e.g. ?mesa=3 or ?table=3)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const mesaParam = searchParams.get('mesa') || searchParams.get('table') || searchParams.get('m') || searchParams.get('t');
+    if (mesaParam) {
+      const parsed = parseInt(mesaParam);
+      if (parsed && !isNaN(parsed)) {
+        setTableNum(parsed.toString());
+      }
+    }
+  }, []);
+
   // Log error if restaurant cannot be found
   useEffect(() => {
     if (globalError) {
@@ -141,9 +153,9 @@ export default function CardapioWelcome() {
         toast.success(`Bem-vindo, ${name}!`);
       }
       navigate(`/menu/${restaurantId}/home`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Erro ao abrir comanda da mesa.');
+      toast.error(err.message || 'Erro ao abrir comanda da mesa.');
     } finally {
       setLoading(false);
     }
