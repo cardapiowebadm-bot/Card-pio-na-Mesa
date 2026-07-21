@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { updateEmail, updatePassword } from 'firebase/auth';
 import { db, auth } from '../services/firebase';
 import { ChefHat, Mail, Lock, User, Phone, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -76,30 +76,31 @@ export default function WaiterSetupPage() {
 
     setSaving(true);
     try {
-      // 1. Create User in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('Sessão inválida. Por favor, realize login novamente.');
+        navigate('/login');
+        return;
+      }
 
-      // 2. Create profile in users collection
+      // 1. Update Email and Password in the existing Firebase Auth User (preserving UID)
+      await updateEmail(user, email);
+      await updatePassword(user, password);
+
+      // 2. Update existing user profile in users collection with the new definitive email
       const userProfileRef = doc(db, 'users', user.uid);
-      await setDoc(userProfileRef, {
-        id: user.uid,
-        name: waiterData.name,
-        email: email,
-        role: 'waiter',
-        restaurantId: waiterData.restaurantId,
-        createdAt: new Date().toISOString()
+      await updateDoc(userProfileRef, {
+        email: email
       });
 
       // 3. Update status in waiters collection
       const waiterRef = doc(db, 'waiters', waiterId!);
       await updateDoc(waiterRef, {
         isFirstAccess: false,
-        email: email,
-        userId: user.uid
+        email: email
       });
 
-      toast.success('Conta definitiva criada com sucesso!');
+      toast.success('Conta definitiva configurada com sucesso!');
       
       // Give a tiny moment for AuthState to update, then navigate to admin area
       setTimeout(() => {
@@ -111,6 +112,9 @@ export default function WaiterSetupPage() {
         toast.error('Este e-mail já está sendo utilizado por outro usuário.');
       } else if (err.code === 'auth/invalid-email') {
         toast.error('Por favor, insira um endereço de e-mail válido.');
+      } else if (err.code === 'auth/requires-recent-login') {
+        toast.error('Por segurança, sua sessão expirou. Faça login novamente com os dados provisórios.');
+        navigate('/login');
       } else {
         toast.error('Falha ao configurar credenciais definitivas.');
       }

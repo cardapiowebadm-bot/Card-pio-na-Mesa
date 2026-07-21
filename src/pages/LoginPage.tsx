@@ -6,8 +6,9 @@ import * as zod from 'zod';
 import { useAuth } from '../contexts/AuthContext';
 import { ChefHat, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db, auth } from '../services/firebase';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 const loginSchema = zod.object({
   email: zod.string().min(3, 'Por favor, informe um e-mail válido ou login temporário'),
@@ -56,12 +57,44 @@ export default function LoginPage() {
           return;
         }
 
-        if (waiterData.passwordTemp !== data.password) {
-          toast.error('Usuário ou senha incorretos.');
-          return;
-        }
-
         if (waiterData.isFirstAccess) {
+          const tempEmail = `${data.email.trim()}@temp.cardapionamesa.com`;
+          try {
+            // Attempt to authenticate using Firebase Auth
+            await signIn(tempEmail, data.password);
+          } catch (authErr: any) {
+            // If the user doesn't exist in Auth, but the temporary password matches, create/migrate them on-the-fly
+            if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') {
+              if (waiterData.passwordTemp === data.password) {
+                try {
+                  const cred = await createUserWithEmailAndPassword(auth, tempEmail, data.password);
+                  const uid = cred.user.uid;
+
+                  // Update Firestore waiters document
+                  await updateDoc(doc(db, 'waiters', waiterDoc.id), { userId: uid });
+
+                  // Create profile in users collection
+                  await setDoc(doc(db, 'users', uid), {
+                    id: uid,
+                    name: waiterData.name,
+                    email: tempEmail,
+                    role: 'waiter',
+                    restaurantId: waiterData.restaurantId,
+                    waiterDocId: waiterDoc.id,
+                    createdAt: new Date().toISOString()
+                  });
+                } catch (createErr) {
+                  console.error("Failed to migrate waiter on the fly", createErr);
+                  throw authErr;
+                }
+              } else {
+                throw authErr;
+              }
+            } else {
+              throw authErr;
+            }
+          }
+
           toast.success('Primeiro acesso detectado! Vamos definir suas credenciais definitivas.');
           navigate(`/waiter/setup?waiterId=${waiterDoc.id}`);
         } else {
