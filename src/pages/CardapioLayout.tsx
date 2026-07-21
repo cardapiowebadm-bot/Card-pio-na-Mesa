@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCardapio } from '../contexts/CardapioContext';
+import { useAuth } from '../contexts/AuthContext';
 import { 
   BellRing, 
   ShoppingCart, 
@@ -10,21 +11,35 @@ import {
   ChevronRight,
   HelpCircle,
   Clock,
-  X
+  X,
+  ArrowLeft,
+  Users
 } from 'lucide-react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getThemeShades } from '../services/theme';
 
 export default function CardapioLayout({ children }: { children: React.ReactNode }) {
-  const { restaurant, activeSession, cart, callWaiter } = useCardapio();
+  const { restaurant, activeSession, cart, callWaiter, switchTable, closeSessionLocal } = useCardapio();
+  const { userProfile } = useAuth();
   const { restaurantId } = useParams<{ restaurantId: string }>();
+  const navigate = useNavigate();
   const location = useLocation();
   const [showCallModal, setShowCallModal] = useState(false);
   const [calling, setCalling] = useState(false);
 
   // Cart count
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+  const handleSwitchTable = () => {
+    if (switchTable) {
+      switchTable();
+    } else {
+      closeSessionLocal();
+    }
+    toast.success('Retornou ao Painel do Garçom');
+    navigate(`/menu/${restaurantId}`);
+  };
 
   const handleCallWaiter = async (reason: string) => {
     setCalling(true);
@@ -96,8 +111,16 @@ export default function CardapioLayout({ children }: { children: React.ReactNode
           </div>
         </div>
 
-        {/* Call Waiter CTA */}
-        {activeSession && (
+        {/* Actions / CTA */}
+        {activeSession && userProfile?.role === 'waiter' ? (
+          <button
+            onClick={handleSwitchTable}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-[11px] px-3 py-2 rounded-xl transition-all shadow-sm border border-slate-700"
+          >
+            <Users className="w-3.5 h-3.5 text-blue-400" />
+            <span>Trocar Mesa</span>
+          </button>
+        ) : activeSession ? (
           <button
             onClick={() => setShowCallModal(true)}
             className="flex items-center gap-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] px-3.5 py-2 rounded-xl transition-all shadow-sm"
@@ -105,8 +128,30 @@ export default function CardapioLayout({ children }: { children: React.ReactNode
             <BellRing className="w-3.5 h-3.5 animate-bounce" />
             Chamar Garçom
           </button>
-        )}
+        ) : null}
       </header>
+
+      {/* Waiter Mode Sticky Bar */}
+      {userProfile?.role === 'waiter' && (
+        <div className="bg-slate-900 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs font-medium sticky top-[65px] z-20 border-t border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold text-slate-200">Modo Garçom</span>
+            {activeSession && (
+              <span className="bg-slate-800 text-slate-100 px-2 py-0.5 rounded-md text-[11px] font-extrabold border border-slate-700">
+                Mesa {activeSession.tableNumber}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={handleSwitchTable}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-xl transition-all shadow-xs text-[11px]"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Voltar ao Painel do Garçom</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Screen */}
       <main className="flex-1 max-w-lg mx-auto w-full p-4">

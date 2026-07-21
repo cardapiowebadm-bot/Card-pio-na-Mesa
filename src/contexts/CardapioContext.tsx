@@ -60,6 +60,7 @@ interface CardapioContextType {
   callWaiter: (reason: 'water' | 'napkin' | 'service' | 'bill' | 'other') => Promise<void>;
   requestPayment: (method: 'pix' | 'card') => Promise<void>;
   closeSessionLocal: () => void;
+  switchTable: () => void;
   joinSession: (session: TableSession) => void;
 }
 
@@ -782,6 +783,17 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const switchTable = () => {
+    setActiveTableSession(null);
+    setCart([]);
+    try {
+      localStorage.removeItem('cardapio_table_session');
+      localStorage.removeItem('cardapio_cart');
+    } catch (e) {
+      console.error("Error clearing localStorage", e);
+    }
+  };
+
   const joinSession = (session: TableSession) => {
     setActiveTableSession(session);
     setCart([]);
@@ -811,6 +823,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       callWaiter,
       requestPayment,
       closeSessionLocal,
+      switchTable,
       joinSession
     }}>
       {children}
