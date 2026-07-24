@@ -180,7 +180,14 @@ service cloud.firestore {
 
     match /payment_history/{historyId} {
       allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
-      allow write: if isMaster();
+      allow create: if isMaster() || (isLoggedIn() && isMemberOf(request.resource.data.restaurantId));
+      allow update, delete: if isMaster();
+    }
+
+    match /financial_notifications/{notificationId} {
+      allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
+      allow create: if isMaster() || (isLoggedIn() && isMemberOf(request.resource.data.restaurantId));
+      allow update, delete: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
     }
 
     match /payment_methods/{methodId} {

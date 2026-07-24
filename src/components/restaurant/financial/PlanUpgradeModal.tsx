@@ -136,7 +136,7 @@ export const PlanUpgradeModal: React.FC<PlanUpgradeModalProps> = ({ isOpen, onCl
                     ) : (
                       <button
                         onClick={() => handleRequestUpgrade(plan)}
-                        disabled={requestingPlanId === plan.id}
+                        disabled={requestingPlanId !== null}
                         className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${
                           isPopular
                             ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-900/10'

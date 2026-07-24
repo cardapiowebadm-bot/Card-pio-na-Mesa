@@ -20,6 +20,7 @@ import { toast } from 'react-hot-toast';
 
 interface RestaurantBillingContextData {
   loading: boolean;
+  isProcessingCheckout: boolean;
   subscription: Subscription | null;
   currentPlan: MasterPlan | null;
   allPlans: MasterPlan[];
@@ -50,6 +51,7 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
   const restaurantId = restaurant?.id || userProfile?.restaurantId;
 
   const [loading, setLoading] = useState(true);
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [allPlans, setAllPlans] = useState<MasterPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<MasterPlan | null>(null);
@@ -178,7 +180,8 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
 
   // Redireciona para o Portal do Cliente do Stripe para gerenciamento de cartões e faturas
   const openCustomerPortal = async () => {
-    if (!restaurantId) return;
+    if (!restaurantId || isProcessingCheckout) return;
+    setIsProcessingCheckout(true);
     try {
       const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
       const toastId = toast.loading('Acessando Portal do Cliente Stripe...');
@@ -234,12 +237,15 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
     } catch (err: any) {
       console.error('Erro ao abrir Portal do Cliente:', err);
       toast.error('Erro ao conectar com o Portal do Cliente Stripe.');
+    } finally {
+      setIsProcessingCheckout(false);
     }
   };
 
   // Solicitação de Contratação/Upgrade de Plano via Stripe Checkout Official
   const requestPlanUpgrade = async (targetPlanId: string) => {
-    if (!restaurantId) return;
+    if (!restaurantId || isProcessingCheckout) return;
+    setIsProcessingCheckout(true);
     try {
       const targetPlan = allPlans.find(p => p.id === targetPlanId);
       const planName = targetPlan?.name || targetPlanId;
@@ -316,6 +322,8 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
     } catch (err) {
       console.error('Erro ao registrar solicitação de upgrade:', err);
       toast.error('Erro ao iniciar processo de pagamento Stripe.');
+    } finally {
+      setIsProcessingCheckout(false);
     }
   };
 
@@ -354,6 +362,7 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
   return (
     <RestaurantBillingContext.Provider value={{
       loading,
+      isProcessingCheckout,
       subscription,
       currentPlan,
       allPlans,
