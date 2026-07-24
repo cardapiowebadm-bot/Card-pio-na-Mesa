@@ -1,4 +1,37 @@
-export type UserRole = 'owner' | 'manager' | 'waiter' | 'cozinha';
+export type UserRole = 'owner' | 'manager' | 'waiter' | 'cozinha' | 'master';
+
+export type RestaurantStatus = 'active' | 'suspended' | 'blocked' | 'trial' | 'expired' | 'unpaid';
+
+export interface MasterFeature {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  active: boolean;
+  category?: 'core' | 'operations' | 'management' | 'advanced';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MasterPlanLimits {
+  maxTables: number;     // 0 = ilimitado
+  maxWaiters: number;    // 0 = ilimitado
+  maxAdminUsers: number; // 0 = ilimitado
+  trialDays: number;     // ex: 14
+}
+
+export interface MasterPlan {
+  id: string;            // ex: 'bistro', 'gourmet', 'chef' ou id customizado
+  name: string;          // ex: 'Plano Bistrô'
+  description: string;   // ex: 'Para estabelecimentos em crescimento'
+  price: number;         // Valor mensal em R$
+  active: boolean;       // Ativo / Inativo
+  order: number;         // Ordem de exibição
+  limits: MasterPlanLimits;
+  features: string[];    // Array de IDs de recursos (MasterFeature.id)
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface Restaurant {
   id: string;
@@ -6,6 +39,8 @@ export interface Restaurant {
   logo: string;
   phone: string;
   address: string;
+  city?: string;
+  state?: string;
   instagram?: string;
   whatsapp?: string;
   hours?: string;
@@ -15,6 +50,13 @@ export interface Restaurant {
     secondary: string; // e.g. '#475569'
   };
   ownerId: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  status?: RestaurantStatus;
+  plan?: string; // 'bistro' | 'gourmet' | 'chef' | 'trial' or custom plan ID
+  planId?: string;
+  addOns?: string[]; // Array de IDs de recursos adquiridos como Add-on individual
+  nextDueDate?: string;
   createdAt: any;
   serviceTaxEnabled?: boolean;
   serviceTaxType?: 'percentage' | 'fixed';
@@ -23,7 +65,20 @@ export interface Restaurant {
   couvertType?: 'percentage' | 'fixed';
   couvertValue?: number;
   themeColor?: string;
+  // Estrutura Stripe e Ciclo de Vida do SaaS
+  subscriptionStatus?: string;
+  trialStartDate?: string;
+  trialEndDate?: string;
+  renewalDate?: string;
+  updatedAt?: any;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string;
+  stripeAccountStatus?: string;
+  stripeLastSync?: string;
 }
+
+export * from './financial';
 
 export interface UserProfile {
   id: string;
@@ -159,4 +214,14 @@ export interface RestaurantNotification {
   referenceId: string; // orderId, waiterCallId, or tableSessionId
   tableNumber: number;
   createdAt: any;
+}
+
+export interface MasterAuditLog {
+  id?: string;
+  timestamp: string;
+  action: 'plan_created' | 'plan_updated' | 'plan_deleted' | 'feature_saved' | 'feature_deleted' | 'restaurant_plan_changed' | 'restaurant_status_changed';
+  description: string;
+  performedBy: string;
+  targetId: string;
+  metadata?: any;
 }

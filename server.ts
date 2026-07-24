@@ -3,13 +3,189 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { 
+  StripeService, 
+  StripeCustomerService, 
+  StripeCheckoutService, 
+  StripeWebhookService 
+} from './src/services/stripe/index';
+import { BillingScheduler } from './src/services/financial/BillingScheduler';
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+// Configuração de CORS para permitir acesso do Netlify (https://cardapionamesa.netlify.app) e domínios do Cloud Run/Local
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://cardapionamesa.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://ais-pre-ypzonks35xzszkfmufvwph-238864834883.us-west2.run.app',
+    'https://ais-dev-ypzonks35xzszkfmufvwph-238864834883.us-west2.run.app'
+  ];
+  const origin = req.headers.origin;
+  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.netlify.app') || origin.endsWith('.run.app'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, stripe-signature');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Webhook do Stripe precisa de raw body para validação de assinatura se enviado como stream
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const sig = (req.headers['stripe-signature'] as string) || '';
+    let payload = req.body;
+
+    if (Buffer.isBuffer(payload)) {
+      payload = payload.toString('utf-8');
+    } else if (typeof payload === 'object') {
+      payload = JSON.stringify(payload);
+    }
+
+    let event: any;
+    try {
+      event = StripeWebhookService.constructEventAndVerifySignature(payload, sig);
+    } catch (err: any) {
+      console.error('Falha na validação da assinatura do Webhook Stripe:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    const result = await StripeWebhookService.handleWebhookEvent(event);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Erro no endpoint POST /api/stripe/webhook:', error);
+    res.status(500).json({ error: error.message || 'Erro interno no processamento do webhook.' });
+  }
+});
+
 app.use(express.json());
+
+// --- ENDPOINTS STRIPE (ESTRUTURA DE INFRAESTRUTURA) ---
+
+app.get('/api/stripe/config', (req, res) => {
+  try {
+    const config = StripeService.getConfig();
+    res.json({
+      configured: config.hasSecretKey,
+      publishableKey: config.publishableKey,
+      prices: config.prices
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/stripe/customer', async (req, res) => {
+  try {
+    const { restaurantId, name, email, phone, documentNumber, metadata } = req.body;
+    if (!restaurantId || !email) {
+      return res.status(400).json({ error: 'restaurantId e email são obrigatórios.' });
+    }
+
+    const customer = await StripeCustomerService.createCustomer({
+      restaurantId,
+      name: name || 'Restaurante',
+      email,
+      phone,
+      documentNumber,
+      metadata
+    });
+
+    res.json({ success: true, customer });
+  } catch (error: any) {
+    console.error('Erro no endpoint POST /api/stripe/customer:', error);
+    res.status(500).json({ error: error.message || 'Erro ao processar cliente Stripe.' });
+  }
+});
+
+app.post('/api/stripe/checkout', async (req, res) => {
+  try {
+    const { restaurantId, planId, priceId, customerId, customerEmail, successUrl, cancelUrl, metadata } = req.body;
+    if (!restaurantId || !planId) {
+      return res.status(400).json({ error: 'restaurantId e planId são obrigatórios.' });
+    }
+
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const finalSuccessUrl = successUrl || `${appUrl}/admin/financial?status=success&session_id={CHECKOUT_SESSION_ID}`;
+    const finalCancelUrl = cancelUrl || `${appUrl}/admin/financial?status=cancelled`;
+
+    const session = await StripeCheckoutService.createCheckoutSession({
+      restaurantId,
+      planId,
+      priceId,
+      customerId,
+      customerEmail,
+      successUrl: finalSuccessUrl,
+      cancelUrl: finalCancelUrl,
+      metadata
+    });
+
+    res.json({ success: true, session });
+  } catch (error: any) {
+    console.error('Erro no endpoint POST /api/stripe/checkout:', error);
+    res.status(500).json({ error: error.message || 'Erro ao criar sessão de checkout Stripe.' });
+  }
+});
+
+app.post('/api/stripe/customer-portal', async (req, res) => {
+  try {
+    const { customerId, returnUrl } = req.body;
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId é obrigatório.' });
+    }
+
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const finalReturnUrl = returnUrl || `${appUrl}/admin/financial`;
+
+    const portal = await StripeCheckoutService.createCustomerPortalSession({
+      customerId,
+      returnUrl: finalReturnUrl
+    });
+
+    res.json({ success: true, url: portal.url });
+  } catch (error: any) {
+    console.error('Erro no endpoint POST /api/stripe/customer-portal:', error);
+    res.status(500).json({ error: error.message || 'Erro ao criar portal do cliente Stripe.' });
+  }
+});
+
+// Endpoint do Agendador de Automações Financeiras (Cloud Scheduler / Cron)
+app.all('/api/scheduler/billing-check', async (req, res) => {
+  try {
+    const schedulerSecret = process.env.SCHEDULER_SECRET;
+    
+    // Se a chave secreta do agendador não estiver configurada no backend Cloud Run, bloqueia por segurança
+    if (!schedulerSecret) {
+      return res.status(401).json({ error: 'Acesso não autorizado. SCHEDULER_SECRET não configurada no servidor.' });
+    }
+
+    const authHeader = String(req.headers.authorization || '').trim();
+    const secretHeader = String(req.headers['x-scheduler-secret'] || '').trim();
+    
+    const isBearerValid = authHeader === `Bearer ${schedulerSecret}`;
+    const isHeaderValid = secretHeader === schedulerSecret;
+
+    if (!isBearerValid && !isHeaderValid) {
+      return res.status(401).json({ error: 'Acesso não autorizado ao agendador financeiro. Autenticação por cabeçalho inválida.' });
+    }
+
+    const force = req.query.force === 'true' || req.body?.force === true;
+    const result = await BillingScheduler.runAllAutomations(force);
+    res.json({ success: true, result });
+  } catch (error: any) {
+    console.error('Erro no endpoint /api/scheduler/billing-check:', error);
+    res.status(500).json({ error: error.message || 'Erro ao executar automações financeiras.' });
+  }
+});
 
 // Initialize Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;

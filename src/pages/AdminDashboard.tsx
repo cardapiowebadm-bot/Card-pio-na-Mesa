@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePlan } from '../contexts/PlanContext';
 import { 
   collection, 
   query, 
@@ -8,7 +9,7 @@ import {
   getDocs 
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { Order, Table, TableSession } from '../types';
+import { Order, Table, TableSession, Waiter } from '../types';
 import { 
   TrendingUp, 
   Utensils, 
@@ -17,13 +18,19 @@ import {
   DollarSign, 
   Users, 
   CreditCard,
-  ShoppingBag
+  ShoppingBag,
+  Sparkles,
+  ShieldCheck,
+  Calendar,
+  Zap
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { userProfile } = useAuth();
+  const { userProfile, restaurant } = useAuth();
+  const { activePlan, isTrial, remainingTrialDays, features, openUpgradeModal } = usePlan();
   const [orders, setOrders] = useState<Order[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [sessions, setSessions] = useState<TableSession[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,6 +43,14 @@ export default function AdminDashboard() {
       const items: Table[] = [];
       snap.forEach(d => items.push({ ...d.data(), id: d.id } as Table));
       setTables(items);
+    });
+
+    // Load waiters
+    const qWaiters = query(collection(db, 'waiters'), where('restaurantId', '==', userProfile.restaurantId));
+    const unsubWaiters = onSnapshot(qWaiters, (snap) => {
+      const items: Waiter[] = [];
+      snap.forEach(d => items.push({ ...d.data(), id: d.id } as Waiter));
+      setWaiters(items);
     });
 
     // Load orders of today
@@ -67,6 +82,7 @@ export default function AdminDashboard() {
 
     return () => {
       unsubTables();
+      unsubWaiters();
       unsubOrders();
       unsubSessions();
     };
@@ -105,9 +121,132 @@ export default function AdminDashboard() {
     <div className="space-y-8 animate-fade-in">
       
       {/* Welcome Title */}
-      <div>
-        <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Painel de Desempenho</h2>
-        <p className="text-slate-500 text-sm mt-1">Acompanhe as comandas, faturamentos e andamento dos pedidos de hoje em tempo real.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Painel de Desempenho</h2>
+          <p className="text-slate-500 text-sm mt-1">Acompanhe as comandas, faturamentos e andamento dos pedidos de hoje em tempo real.</p>
+        </div>
+      </div>
+
+      {/* Card: Meu Plano */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden border border-slate-700/50">
+        <div className="absolute top-0 right-0 -mt-6 -mr-6 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          
+          {/* Header & Main Info */}
+          <div className="space-y-3 max-w-md">
+            <div className="flex items-center gap-2">
+              <span className="bg-rose-500/20 text-rose-300 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full border border-rose-500/30 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-rose-400" />
+                Meu Plano
+              </span>
+              {isTrial && (
+                <span className="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-500/30">
+                  {remainingTrialDays} {remainingTrialDays === 1 ? 'dia de trial' : 'dias de trial'}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-baseline gap-3">
+              <h3 className="text-2xl font-bold font-display tracking-tight text-white">
+                {activePlan?.name || 'Plano Gourmet'}
+              </h3>
+              <span className="text-slate-400 text-xs">
+                R$ {activePlan?.price?.toFixed(2) || '189.00'}/mês
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-300">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span>Vencimento: <strong className="text-white">{restaurant?.nextDueDate ? new Date(restaurant.nextDueDate).toLocaleDateString('pt-BR') : 'Trial / Em andamento'}</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>Recursos: <strong className="text-white">{activePlan?.features?.length || 0} de {features.length} liberados</strong></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Limits Consumption Gauges */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:w-1/2 bg-slate-800/60 p-4 rounded-2xl border border-slate-700/60 backdrop-blur-sm">
+            
+            {/* Limit 1: Mesas */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Limite de Mesas</span>
+                <span className="text-slate-100 font-bold">
+                  {activePlan?.limits?.maxTables === 0 ? `${tables.length} (Ilimitadas)` : `${tables.length} de ${activePlan?.limits?.maxTables}`}
+                </span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ${
+                    activePlan?.limits?.maxTables === 0 
+                      ? 'bg-emerald-400 w-full' 
+                      : (tables.length / (activePlan?.limits?.maxTables || 1)) >= 0.9 
+                        ? 'bg-rose-500' 
+                        : 'bg-rose-400'
+                  }`}
+                  style={{
+                    width: activePlan?.limits?.maxTables === 0 
+                      ? '100%' 
+                      : `${Math.min(100, Math.round((tables.length / (activePlan?.limits?.maxTables || 1)) * 100))}%`
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {activePlan?.limits?.maxTables === 0 ? 'Sem restrição de mesas' : `${tables.length} de ${activePlan?.limits?.maxTables} utilizadas`}
+              </p>
+            </div>
+
+            {/* Limit 2: Garçons */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Limite de Garçons</span>
+                <span className="text-slate-100 font-bold">
+                  {activePlan?.limits?.maxWaiters === 0 ? `${waiters.length} (Ilimitados)` : `${waiters.length} de ${activePlan?.limits?.maxWaiters}`}
+                </span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ${
+                    activePlan?.limits?.maxWaiters === 0 
+                      ? 'bg-emerald-400 w-full' 
+                      : (waiters.length / (activePlan?.limits?.maxWaiters || 1)) >= 0.9 
+                        ? 'bg-rose-500' 
+                        : 'bg-indigo-400'
+                  }`}
+                  style={{
+                    width: activePlan?.limits?.maxWaiters === 0 
+                      ? '100%' 
+                      : `${Math.min(100, Math.round((waiters.length / (activePlan?.limits?.maxWaiters || 1)) * 100))}%`
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {activePlan?.limits?.maxWaiters === 0 ? 'Sem restrição de garçons' : `${waiters.length} de ${activePlan?.limits?.maxWaiters} utilizados`}
+              </p>
+            </div>
+
+          </div>
+
+          {/* Action button */}
+          <div className="shrink-0 flex items-center">
+            <button
+              onClick={() => openUpgradeModal(
+                'Conhecer Outros Planos',
+                'Veja a comparação dos nossos planos e escolha a melhor opção para acelerar o crescimento do seu restaurante.'
+              )}
+              className="w-full lg:w-auto px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition-all shadow-lg shadow-rose-900/30 flex items-center justify-center gap-2 group"
+            >
+              <Sparkles className="w-4 h-4 text-rose-200 group-hover:rotate-12 transition-transform" />
+              <span>Conhecer outros planos</span>
+            </button>
+          </div>
+
+        </div>
       </div>
 
       {/* Grid of KPIs */}

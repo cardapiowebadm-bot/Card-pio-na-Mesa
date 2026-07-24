@@ -426,6 +426,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-6 text-xs text-slate-500">
             <a href="#" className="hover:text-rose-600">Termos de Uso</a>
             <a href="#" className="hover:text-rose-600">Privacidade</a>
+            <Link to="/master/login" className="hover:text-indigo-600 font-medium transition-colors">Painel Master</Link>
           </div>
         </div>
       </footer>

@@ -26,29 +26,34 @@ service cloud.firestore {
       return isLoggedIn() && hasUserData() && getUserData().role == role;
     }
 
+    // Helper: Is Master platform admin
+    function isMaster() {
+      return isLoggedIn() && hasUserData() && getUserData().role == 'master';
+    }
+
     // Restaurants
     match /restaurants/{restaurantId} {
       allow read: if true; // Publicly readable for cardápio
-      allow write: if isLoggedIn() && (
+      allow write: if isMaster() || (isLoggedIn() && (
         // Only owner or manager of this restaurant can edit
         isMemberOf(restaurantId) && (getUserData().role == 'owner' || getUserData().role == 'manager')
       ) || (
         // Allow creating a new restaurant during sign-up
         request.resource.data.ownerId == request.auth.uid
-      );
+      ));
     }
 
-    // Users (Employees/Owners)
+    // Users (Employees/Owners/Master)
     match /users/{userId} {
-      allow read: if isLoggedIn() && (
+      allow read: if isMaster() || (isLoggedIn() && (
         request.auth.uid == userId || 
         (request.auth.uid != userId && hasUserData() && getUserData().restaurantId == resource.data.restaurantId)
-      );
+      ));
       allow create: if isLoggedIn();
-      allow update, delete: if isLoggedIn() && (
+      allow update, delete: if isMaster() || (isLoggedIn() && (
         request.auth.uid == userId || 
         (request.auth.uid != userId && hasUserData() && getUserData().restaurantId == resource.data.restaurantId && (getUserData().role == 'owner' || getUserData().role == 'manager'))
-      );
+      ));
     }
 
     // Categories
@@ -138,6 +143,52 @@ service cloud.firestore {
                       request.resource.data.type in ['new_order', 'waiter_call', 'payment_request']);
       allow update: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
+    }
+
+    // Master Plans
+    match /master_plans/{planId} {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Master Features
+    match /master_features/{featureId} {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Audit Logs
+    match /audit_logs/{logId} {
+      allow read, write: if isMaster();
+    }
+
+    // Financial SaaS Collections
+    match /subscriptions/{subscriptionId} {
+      allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
+      allow write: if isMaster();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
+      allow write: if isMaster();
+    }
+
+    match /receipts/{receiptId} {
+      allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
+      allow write: if isMaster();
+    }
+
+    match /payment_history/{historyId} {
+      allow read: if isMaster() || (isLoggedIn() && isMemberOf(resource.data.restaurantId));
+      allow write: if isMaster();
+    }
+
+    match /payment_methods/{methodId} {
+      allow read, write: if isMaster();
+    }
+
+    match /payment_settings/{settingId} {
+      allow read, write: if isMaster();
     }
   }
 }

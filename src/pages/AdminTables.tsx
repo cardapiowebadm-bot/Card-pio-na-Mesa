@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePlan } from '../contexts/PlanContext';
 import { 
   collection, 
   query, 
@@ -30,6 +31,7 @@ import toast from 'react-hot-toast';
 
 export default function AdminTables() {
   const { userProfile, restaurant } = useAuth();
+  const { canAddTable, openUpgradeModal, activePlan } = usePlan();
   const [tables, setTables] = useState<Table[]>([]);
   const [sessions, setSessions] = useState<TableSession[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -114,6 +116,15 @@ export default function AdminTables() {
     const num = parseInt(newTableNum);
     if (!num || isNaN(num)) {
       toast.error('Informe um número válido');
+      return;
+    }
+
+    const limitCheck = canAddTable(tables.length);
+    if (!limitCheck.allowed) {
+      openUpgradeModal(
+        'Limite de Mesas Atingido',
+        `Seu plano atual (${limitCheck.planName}) permite cadastrar no máximo ${limitCheck.max} mesas. Para adicionar mais mesas, solicite o upgrade do seu plano.`
+      );
       return;
     }
 
@@ -305,7 +316,14 @@ export default function AdminTables() {
       {/* Title & Quick Add */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-5">
         <div>
-          <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Monitor das Mesas</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-display font-bold text-3xl text-slate-800 tracking-tight">Monitor das Mesas</h2>
+            {activePlan && (
+              <span className="text-xs bg-slate-100 text-slate-600 font-bold px-3 py-1 rounded-full border border-slate-200">
+                {tables.length} / {activePlan.limits.maxTables === 0 ? '∞' : activePlan.limits.maxTables} mesas
+              </span>
+            )}
+          </div>
           <p className="text-slate-500 text-sm mt-1">Acompanhe as comandas, faturamentos e chamados das mesas em tempo real.</p>
           
           {/* Waiter Assignment Filters */}

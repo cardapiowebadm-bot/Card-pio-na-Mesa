@@ -2,6 +2,9 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CardapioProvider } from './contexts/CardapioContext';
+import { PlanProvider } from './contexts/PlanContext';
+import { StripeProvider } from './contexts/StripeContext';
+import UpgradeModal from './components/UpgradeModal';
 import { Toaster } from 'react-hot-toast';
 
 // Admin / Auth Pages
@@ -17,7 +20,20 @@ import AdminOrders from './pages/AdminOrders';
 import AdminProducts from './pages/AdminProducts';
 import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
+import AdminFinancial from './pages/AdminFinancial';
 import AdminSettings from './pages/AdminSettings';
+
+// Master BackOffice Pages
+import MasterLoginPage from './pages/master/MasterLoginPage';
+import MasterProtectedRoute from './components/master/MasterProtectedRoute';
+import MasterLayout from './pages/master/MasterLayout';
+import MasterDashboard from './pages/master/MasterDashboard';
+import MasterRestaurants from './pages/master/MasterRestaurants';
+import MasterPlans from './pages/master/MasterPlans';
+import MasterSubscriptions from './pages/master/MasterSubscriptions';
+import MasterFinancial from './pages/master/MasterFinancial';
+import MasterReports from './pages/master/MasterReports';
+import MasterSettings from './pages/master/MasterSettings';
 
 // Client / Menu Pages
 import CardapioLayout from './pages/CardapioLayout';
@@ -90,17 +106,103 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster position="top-right" reverseOrder={false} />
-        
-        <Routes>
-          {/* Public / Landing Page */}
-          <Route path="/" element={<LandingPage />} />
-          
-          {/* Auth Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/waiter/setup" element={<WaiterSetupPage />} />
+        <PlanProvider>
+          <StripeProvider>
+            <Toaster position="top-right" reverseOrder={false} />
+            <UpgradeModal />
+            
+            <Routes>
+            {/* Public / Landing Page */}
+            <Route path="/" element={<LandingPage />} />
+            
+            {/* Auth Routes */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/waiter/setup" element={<WaiterSetupPage />} />
+
+            {/* Master BackOffice Routes */}
+            <Route path="/master/login" element={<MasterLoginPage />} />
+            <Route 
+              path="/master" 
+              element={
+                <MasterProtectedRoute>
+                  <MasterLayout>
+                    <MasterDashboard />
+                  </MasterLayout>
+                </MasterProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/master/dashboard" 
+              element={
+                <MasterProtectedRoute>
+                  <MasterLayout>
+                    <MasterDashboard />
+                  </MasterLayout>
+                </MasterProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/master/restaurants" 
+              element={
+                <MasterProtectedRoute>
+                  <MasterLayout>
+                    <MasterRestaurants />
+                  </MasterLayout>
+                </MasterProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/master/plans" 
+              element={
+                <MasterProtectedRoute>
+                  <MasterLayout>
+                    <MasterPlans />
+                  </MasterLayout>
+                </MasterProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/master/subscriptions" 
+              element={
+                <MasterProtectedRoute>
+                  <MasterLayout>
+                    <MasterSubscriptions />
+                  </MasterLayout>
+                </MasterProtectedRoute>
+              } 
+            />
+          <Route 
+            path="/master/financial" 
+            element={
+              <MasterProtectedRoute>
+                <MasterLayout>
+                  <MasterFinancial />
+                </MasterLayout>
+              </MasterProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/master/reports" 
+            element={
+              <MasterProtectedRoute>
+                <MasterLayout>
+                  <MasterReports />
+                </MasterLayout>
+              </MasterProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/master/settings" 
+            element={
+              <MasterProtectedRoute>
+                <MasterLayout>
+                  <MasterSettings />
+                </MasterLayout>
+              </MasterProtectedRoute>
+            } 
+          />
 
           {/* Admin Routes with Protections & RBAC */}
           <Route 
@@ -164,6 +266,16 @@ export default function App() {
             } 
           />
           <Route 
+            path="/admin/financial" 
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <AdminFinancial />
+                </AdminLayout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
             path="/admin/settings" 
             element={
               <ProtectedRoute>
@@ -180,6 +292,8 @@ export default function App() {
           {/* Fallback Redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+          </StripeProvider>
+        </PlanProvider>
       </AuthProvider>
     </BrowserRouter>
   );

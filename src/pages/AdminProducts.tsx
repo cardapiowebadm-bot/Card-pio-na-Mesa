@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePlan } from '../contexts/PlanContext';
 import { 
   collection, 
   query, 
@@ -24,12 +25,14 @@ import {
   Languages, 
   HelpCircle,
   TrendingDown,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function AdminProducts() {
   const { userProfile } = useAuth();
+  const { hasFeature, openUpgradeModal } = usePlan();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +165,19 @@ export default function AdminProducts() {
   };
 
   // AI Gemini Tools Integration (proxied server-side)
+  const checkAiPermission = (): boolean => {
+    if (!hasFeature('gemini_ai')) {
+      openUpgradeModal(
+        'Inteligência Artificial Gemini',
+        'A geração automática de descrições e títulos gourmet via IA Gemini está disponível a partir do Plano Gourmet. Faça upgrade para utilizar este recurso.'
+      );
+      return false;
+    }
+    return true;
+  };
+
   const handleAiGenerateDescription = async () => {
+    if (!checkAiPermission()) return;
     if (!name) {
       toast.error('Por favor, informe o nome do produto primeiro!');
       return;
@@ -188,6 +203,7 @@ export default function AdminProducts() {
   };
 
   const handleAiSuggestNames = async () => {
+    if (!checkAiPermission()) return;
     if (!aiIngredients) {
       toast.error('Informe os ingredientes principais para sugerirmos nomes!');
       return;
@@ -213,6 +229,7 @@ export default function AdminProducts() {
   };
 
   const handleAiCorrectText = async () => {
+    if (!checkAiPermission()) return;
     if (!description && !name) {
       toast.error('Preencha o nome ou a descrição para corrigirmos.');
       return;
@@ -408,10 +425,18 @@ export default function AdminProducts() {
                       type="button"
                       onClick={handleAiGenerateDescription}
                       disabled={aiLoading}
-                      className="text-rose-600 hover:text-rose-700 font-semibold text-[10px] flex items-center gap-1 bg-rose-50 px-2 py-1 rounded-lg"
-                      title="Gera descrição chamativa baseado no nome"
+                      className={`font-semibold text-[10px] flex items-center gap-1 px-2 py-1 rounded-lg ${
+                        hasFeature('gemini_ai')
+                          ? 'text-rose-600 hover:text-rose-700 bg-rose-50'
+                          : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
+                      }`}
+                      title={hasFeature('gemini_ai') ? "Gera descrição chamativa baseado no nome" : "Disponível no Plano Gourmet"}
                     >
-                      <Sparkles className="w-3 h-3 text-rose-500" />
+                      {!hasFeature('gemini_ai') ? (
+                        <Lock className="w-3 h-3 text-slate-400" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-rose-500" />
+                      )}
                       Criar Cópia IA
                     </button>
                     <button
@@ -421,6 +446,7 @@ export default function AdminProducts() {
                       className="text-slate-600 hover:text-slate-800 font-semibold text-[10px] flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg"
                       title="Corrige gramática e tom de voz"
                     >
+                      {!hasFeature('gemini_ai') && <Lock className="w-3 h-3 text-slate-400" />}
                       Polir Texto IA
                     </button>
                   </div>

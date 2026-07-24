@@ -9,6 +9,7 @@ import {
   FolderHeart, 
   ReceiptText, 
   UsersRound, 
+  CreditCard,
   Settings, 
   LogOut, 
   Menu, 
@@ -16,7 +17,11 @@ import {
   Bell, 
   Volume2, 
   VolumeX,
-  Sparkles
+  Sparkles,
+  Lock,
+  ShieldAlert,
+  ArrowRight,
+  Database
 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
@@ -208,6 +213,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       allowedRoles: ['owner', 'manager', 'waiter']
     },
     {
+      to: "/admin/financial",
+      label: "Financeiro",
+      icon: <CreditCard className="w-5 h-5" />,
+      allowedRoles: ['owner', 'manager']
+    },
+    {
       to: "/admin/settings",
       label: "Configurações",
       icon: <Settings className="w-5 h-5" />,
@@ -221,6 +232,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     waiter: 'Garçom',
     cozinha: 'Cozinha'
   };
+
+  const isExpired = restaurant?.status === 'expired' || restaurant?.subscriptionStatus === 'expired';
+  const isBlocked = restaurant?.status === 'blocked' || restaurant?.status === 'suspended' || restaurant?.status === 'unpaid' || restaurant?.subscriptionStatus === 'unpaid';
+  const isRestricted = isExpired || isBlocked;
 
   return (
     <div className="min-h-screen bg-[#fafafa] flex font-sans selection:bg-rose-100 selection:text-rose-800">
@@ -427,9 +442,43 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         )}
 
-        {/* Render Child Component */}
+        {/* Render Child Component or Restriction Screen */}
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">
-          {children}
+          {isRestricted && location.pathname !== '/admin/financial' ? (
+            <div className="max-w-2xl mx-auto my-8 bg-white rounded-3xl p-8 md:p-12 border border-slate-200/80 shadow-xl text-center flex flex-col items-center">
+              <div className={`p-4 rounded-2xl mb-6 ${isExpired ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
+                {isExpired ? <Lock className="w-10 h-10" /> : <ShieldAlert className="w-10 h-10" />}
+              </div>
+
+              <h2 className="font-display font-bold text-2xl text-slate-900 mb-3">
+                {isExpired ? 'Período de Testes Encerrado' : 'Acesso Suspenso — Pagamento Pendente'}
+              </h2>
+
+              <p className="text-slate-600 text-sm leading-relaxed mb-6 max-w-lg">
+                {isExpired
+                  ? 'Seu período de avaliação gratuita de 14 dias foi concluído. Todos os seus cardápios, produtos, categorias e configurações estão 100% preservados de forma segura.'
+                  : 'O acesso ao painel administrativo foi temporariamente suspenso devido a uma fatura pendente além do período de tolerância. Todos os seus dados continuam 100% preservados.'}
+              </p>
+
+              <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 mb-8 text-left flex items-start gap-3">
+                <Database className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-slate-600">
+                  <span className="font-semibold text-slate-800">Seus dados estão protegidos:</span>
+                  <p className="mt-0.5">Nenhuma informação do seu restaurante foi perdida. Ao assinar ou regularizar seu plano, o acesso a todos os recursos será restabelecido imediatamente.</p>
+                </div>
+              </div>
+
+              <Link
+                to="/admin/financial"
+                className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm px-8 py-3.5 rounded-2xl shadow-lg shadow-rose-600/20 transition-all hover:scale-[1.02]"
+              >
+                <span>{isExpired ? 'Contratar Plano Agora' : 'Regularizar no Financeiro'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

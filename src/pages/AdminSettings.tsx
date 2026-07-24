@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePlan } from '../contexts/PlanContext';
 import { doc, updateDoc, collection, query, where, getDocs, writeBatch, addDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db, firebaseConfig } from '../services/firebase';
 import { initializeApp, getApps } from 'firebase/app';
@@ -32,6 +33,7 @@ import toast from 'react-hot-toast';
 
 export default function AdminSettings() {
   const { userProfile, restaurant, loading } = useAuth();
+  const { canAddWaiter, openUpgradeModal, activePlan } = usePlan();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
@@ -105,6 +107,17 @@ export default function AdminSettings() {
       const normalizedLogin = waiterLogin.trim().toLowerCase();
 
       if (!editingWaiter) {
+         // Check plan limit for waiters
+         const limitCheck = canAddWaiter(waiters.length);
+         if (!limitCheck.allowed) {
+           toast.error(`Limite de garçons atingido (${limitCheck.max} garçons no plano ${limitCheck.planName}).`);
+           openUpgradeModal(
+             'Limite de Garçons Atingido',
+             `Seu plano atual (${limitCheck.planName}) permite cadastrar no máximo ${limitCheck.max} garçons. Faça upgrade do seu plano para cadastrar novos garçons.`
+           );
+           return;
+         }
+
          // Check for login duplicate in restaurant
          const dupQuery = query(
            collection(db, 'waiters'),
@@ -962,10 +975,17 @@ export default function AdminSettings() {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-white border border-slate-100 rounded-3xl p-6 shadow-sm gap-4">
             <div>
-              <h3 className="font-display font-semibold text-lg text-slate-800 flex items-center gap-2">
-                <Users className="w-5 h-5 text-rose-500" />
-                Quadro de Garçons
-              </h3>
+              <div className="flex items-center gap-3">
+                <h3 className="font-display font-semibold text-lg text-slate-800 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  Quadro de Garçons
+                </h3>
+                {activePlan && (
+                  <span className="text-xs bg-slate-100 text-slate-600 font-bold px-3 py-1 rounded-full border border-slate-200">
+                    {waiters.length} / {activePlan.limits.maxWaiters === 0 ? '∞' : activePlan.limits.maxWaiters} garçons
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500 mt-1">
                 Gerencie as credenciais e status de acesso da equipe de atendimento.
               </p>
