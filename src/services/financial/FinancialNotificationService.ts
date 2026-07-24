@@ -30,24 +30,25 @@ export class FinancialNotificationService {
    */
   static async createNotification(event: Omit<FinancialNotificationEvent, 'id' | 'createdAt'>): Promise<string> {
     try {
-      const payload: Omit<FinancialNotificationEvent, 'id'> = {
+      const payload = JSON.parse(JSON.stringify({
         ...event,
         read: false,
         createdAt: new Date().toISOString()
-      };
+      }));
 
       // Grava na coleção 'financial_notifications'
       const docRef = await addDoc(collection(db, 'financial_notifications'), payload);
 
       // Também grava na coleção 'notifications' para aparecer no Header do Restaurante
-      await addDoc(collection(db, 'notifications'), {
+      const genericPayload = JSON.parse(JSON.stringify({
         restaurantId: event.restaurantId,
         type: event.type,
         title: event.title,
         message: event.message,
         status: 'unread',
         createdAt: new Date().toISOString()
-      }).catch(err => console.warn('Erro ao salvar notificação genérica:', err));
+      }));
+      await addDoc(collection(db, 'notifications'), genericPayload).catch(err => console.warn('Erro ao salvar notificação genérica:', err));
 
       console.log(`[FinancialNotificationService] Alerta financeiro registrado [${event.type}] para restaurante ${event.restaurantId}`);
       return docRef.id;

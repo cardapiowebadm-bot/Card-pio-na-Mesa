@@ -282,7 +282,11 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
         action: 'upgrade_requested',
         description: `Iniciando checkout oficial do Stripe para o ${planName}`,
         performedBy: userProfile?.name || 'proprietario',
-        metadata: { targetPlanId, planName, customerId }
+        metadata: { 
+          targetPlanId, 
+          planName, 
+          customerId: customerId || null 
+        }
       });
 
       // 3. Criar Sessão de Checkout

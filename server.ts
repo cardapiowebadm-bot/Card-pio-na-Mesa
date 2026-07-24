@@ -18,23 +18,19 @@ const PORT = 3000;
 
 // Configuração de CORS para permitir acesso do Netlify (https://cardapionamesa.netlify.app) e domínios do Cloud Run/Local
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://cardapionamesa.netlify.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://ais-pre-ypzonks35xzszkfmufvwph-238864834883.us-west2.run.app',
-    'https://ais-dev-ypzonks35xzszkfmufvwph-238864834883.us-west2.run.app'
-  ];
-  const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.netlify.app') || origin.endsWith('.run.app'))) {
+  const origin = (req.headers.origin as string) || '';
+  if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
+  } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, stripe-signature');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, stripe-signature, x-scheduler-secret, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    return res.status(204).end();
   }
   next();
 });

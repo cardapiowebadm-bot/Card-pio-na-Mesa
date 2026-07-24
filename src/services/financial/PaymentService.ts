@@ -102,10 +102,11 @@ export class PaymentService {
    */
   static async logPaymentEvent(event: Omit<PaymentHistoryLog, 'id' | 'timestamp'>): Promise<void> {
     try {
-      await addDoc(collection(db, 'payment_history'), {
+      const cleanEvent = JSON.parse(JSON.stringify({
         ...event,
         timestamp: new Date().toISOString()
-      });
+      }));
+      await addDoc(collection(db, 'payment_history'), cleanEvent);
     } catch (err) {
       console.warn('Erro ao gravar log do histórico financeiro:', err);
     }
