@@ -14,7 +14,7 @@ import { BillingScheduler } from './src/services/financial/BillingScheduler';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Configuração de CORS universal para permitir acesso do Netlify (https://cardapionamesa.netlify.app), Cloud Run e domínios locais
 app.use((req, res, next) => {
