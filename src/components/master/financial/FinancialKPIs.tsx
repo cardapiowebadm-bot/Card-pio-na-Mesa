@@ -102,11 +102,11 @@ export default function FinancialKPIs({ kpis }: FinancialKPIsProps) {
         </div>
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>Trials Ativos: <strong className="text-amber-300">{kpis.activeTrialsCount}</strong></span>
+          <span>Períodos de Avaliação Ativos: <strong className="text-amber-300">{kpis.activeTrialsCount}</strong></span>
         </div>
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-sky-400" />
-          <span>Trials Encerrando (&le; 7 dias): <strong className="text-sky-300">{kpis.endingTrialsCount}</strong></span>
+          <span>Avaliações Encerrando (&le; 7 dias): <strong className="text-sky-300">{kpis.endingTrialsCount}</strong></span>
         </div>
       </div>
     </div>

@@ -100,7 +100,7 @@ const RestaurantFinancialContent: React.FC = () => {
         {/* Tab Selector */}
         <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl overflow-x-auto">
           {[
-            { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+            { id: 'dashboard', label: 'Painel', icon: <LayoutDashboard className="w-4 h-4" /> },
             { id: 'invoices', label: 'Faturas', icon: <FileText className="w-4 h-4" /> },
             { id: 'receipts', label: 'Recibos', icon: <Receipt className="w-4 h-4" /> },
             { id: 'history', label: 'Histórico', icon: <History className="w-4 h-4" /> },

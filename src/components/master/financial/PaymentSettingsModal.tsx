@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, QrCode, Lock, Sparkles, Check, DollarSign } from 'lucide-react';
-import { PaymentSettings } from '../../../types/financial';
+import { X, Save, QrCode, Lock, Sparkles, Check, DollarSign, ShieldCheck } from 'lucide-react';
 import { PaymentService } from '../../../services/financial';
 import toast from 'react-hot-toast';
 
@@ -16,9 +15,6 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
   const [pixCity, setPixCity] = useState('São Paulo');
   const [autoGenerateInvoices, setAutoGenerateInvoices] = useState(true);
   const [defaultDueDays, setDefaultDueDays] = useState(5);
-  const [stripePublicKey, setStripePublicKey] = useState('');
-  const [stripeSecretKey, setStripeSecretKey] = useState('');
-  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -30,9 +26,6 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
         setPixCity(st.pixCity || 'São Paulo');
         setAutoGenerateInvoices(st.autoGenerateInvoices ?? true);
         setDefaultDueDays(st.defaultDueDays ?? 5);
-        setStripePublicKey(st.stripePublicKey || '');
-        setStripeSecretKey(st.stripeSecretKey || '');
-        setStripeWebhookSecret(st.stripeWebhookSecret || '');
       });
     }
   }, [isOpen]);
@@ -49,10 +42,7 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
         pixBeneficiary,
         pixCity,
         autoGenerateInvoices,
-        defaultDueDays,
-        stripePublicKey,
-        stripeSecretKey,
-        stripeWebhookSecret
+        defaultDueDays
       });
       toast.success('Configurações de pagamento salvas!');
       onClose();
@@ -74,7 +64,7 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
             </div>
             <div>
               <h3 className="font-display font-bold text-lg text-white">Configurações de Pagamento & Gateway</h3>
-              <p className="text-xs text-slate-400">Parâmetros de recebimento PIX e chaves Stripe do SaaS</p>
+              <p className="text-xs text-slate-400">Parâmetros de recebimento PIX e status da integração Stripe</p>
             </div>
           </div>
 
@@ -177,52 +167,64 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
             </div>
           </div>
 
-          {/* Estrutura Stripe Preparada */}
-          <div className="space-y-3 bg-slate-950 border border-slate-800 p-4 rounded-2xl">
-            <div className="flex items-center justify-between">
+          {/* Status do Gateway Stripe (Somente Leitura) */}
+          <div className="space-y-4 bg-slate-950 border border-slate-800 p-5 rounded-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Lock className="w-4 h-4 text-sky-400" />
-                Estrutura Stripe Gateway (Preparada para Próxima Etapa)
+                <Lock className="w-4 h-4 text-emerald-400" />
+                Status do Gateway Stripe (Segurança do Servidor)
               </h4>
-              <span className="text-[10px] bg-sky-500/10 text-sky-400 border border-sky-500/20 px-2.5 py-0.5 rounded-full font-semibold">
-                Estrutura Pronta
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                <Check className="w-3 h-3" />
+                Segurança Ativa
               </span>
             </div>
 
-            <div className="space-y-2 text-xs">
-              <div>
-                <label className="text-slate-400 font-medium block mb-1">Stripe Publishable Key (pk_test_...):</label>
-                <input
-                  type="text"
-                  value={stripePublicKey}
-                  onChange={(e) => setStripePublicKey(e.target.value)}
-                  placeholder="pk_test_..."
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono outline-none focus:border-indigo-500"
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-slate-200">Chave Publicável (Frontend)</p>
+                  <p className="text-[11px] text-slate-400">VITE_STRIPE_PUBLISHABLE_KEY</p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                  <Check className="w-3 h-3" /> Configurada
+                </span>
               </div>
 
-              <div>
-                <label className="text-slate-400 font-medium block mb-1">Stripe Secret Key (sk_test_...):</label>
-                <input
-                  type="password"
-                  value={stripeSecretKey}
-                  onChange={(e) => setStripeSecretKey(e.target.value)}
-                  placeholder="sk_test_..."
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono outline-none focus:border-indigo-500"
-                />
+              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-slate-200">Chave Secreta (Servidor)</p>
+                  <p className="text-[11px] text-slate-400">STRIPE_SECRET_KEY no Cloud Run</p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                  <ShieldCheck className="w-3 h-3" /> Protegida no Servidor
+                </span>
               </div>
 
-              <div>
-                <label className="text-slate-400 font-medium block mb-1">Stripe Webhook Signing Secret (whsec_...):</label>
-                <input
-                  type="password"
-                  value={stripeWebhookSecret}
-                  onChange={(e) => setStripeWebhookSecret(e.target.value)}
-                  placeholder="whsec_..."
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono outline-none focus:border-indigo-500"
-                />
+              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-slate-200">Webhook do Stripe</p>
+                  <p className="text-[11px] text-slate-400">STRIPE_WEBHOOK_SECRET no Backend</p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                  <Check className="w-3 h-3" /> Configurado
+                </span>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-slate-200">Ambiente de Operação</p>
+                  <p className="text-[11px] text-slate-400">Integração do Backend</p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-lg">
+                  <Sparkles className="w-3 h-3" /> Teste / Produção
+                </span>
               </div>
             </div>
+
+            <p className="text-[11px] text-slate-400 italic pt-1 leading-relaxed">
+              Por medidas de segurança, as credenciais secretas do Stripe são armazenadas exclusivamente como variáveis de ambiente no servidor (Cloud Run) e nunca são exibidas, salvas no banco de dados ou transmitidas pelo navegador.
+            </p>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
@@ -249,3 +251,4 @@ export default function PaymentSettingsModal({ isOpen, onClose }: PaymentSetting
     </div>
   );
 }
+

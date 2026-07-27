@@ -54,7 +54,7 @@ export default function SubscriptionsTable({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
             <Sparkles className="w-3 h-3" />
-            Trial
+            Avaliação
           </span>
         );
       case 'canceled':
@@ -92,7 +92,7 @@ export default function SubscriptionsTable({
           {[
             { id: 'all', label: 'Todas' },
             { id: 'active', label: 'Ativas' },
-            { id: 'trialing', label: 'Trials' },
+            { id: 'trialing', label: 'Em Avaliação' },
             { id: 'canceled', label: 'Canceladas' }
           ].map(tab => (
             <button

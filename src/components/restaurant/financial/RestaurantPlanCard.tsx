@@ -14,8 +14,8 @@ export const RestaurantPlanCard: React.FC<RestaurantPlanCardProps> = ({ onOpenUp
 
   const statusMap: Record<string, { label: string; bg: string; text: string }> = {
     active: { label: 'Assinatura Ativa', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', text: 'text-emerald-700' },
-    trial: { label: 'Período de Teste (Trial)', bg: 'bg-amber-50 text-amber-700 border-amber-200', text: 'text-amber-700' },
-    trialing: { label: 'Período de Teste (Trial)', bg: 'bg-amber-50 text-amber-700 border-amber-200', text: 'text-amber-700' },
+    trial: { label: 'Período de Avaliação', bg: 'bg-amber-50 text-amber-700 border-amber-200', text: 'text-amber-700' },
+    trialing: { label: 'Período de Avaliação', bg: 'bg-amber-50 text-amber-700 border-amber-200', text: 'text-amber-700' },
     past_due: { label: 'Pagamento Pendente', bg: 'bg-rose-50 text-rose-700 border-rose-200', text: 'text-rose-700' },
     unpaid: { label: 'Não Pago', bg: 'bg-rose-100 text-rose-800 border-rose-300', text: 'text-rose-800' },
     canceled: { label: 'Cancelada', bg: 'bg-slate-100 text-slate-700 border-slate-200', text: 'text-slate-700' },

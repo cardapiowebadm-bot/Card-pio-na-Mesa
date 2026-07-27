@@ -29,7 +29,7 @@ export default function MasterLayout({ children }: MasterLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigation = [
-    { name: 'Dashboard', path: '/master/dashboard', icon: LayoutDashboard },
+    { name: 'Painel', path: '/master/dashboard', icon: LayoutDashboard },
     { name: 'Restaurantes', path: '/master/restaurants', icon: Store },
     { name: 'Planos & Recursos', path: '/master/plans', icon: Layers },
     { name: 'Assinaturas', path: '/master/subscriptions', icon: CreditCard },
