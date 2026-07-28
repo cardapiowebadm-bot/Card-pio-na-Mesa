@@ -1,5 +1,4 @@
-import { addDoc, collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
+import { adminDb } from '../firebaseAdmin';
 
 export type FinancialNotificationType = 
   | 'subscription_expiring_soon'
@@ -37,7 +36,7 @@ export class FinancialNotificationService {
       }));
 
       // Grava na coleção 'financial_notifications'
-      const docRef = await addDoc(collection(db, 'financial_notifications'), payload);
+      const docRef = await adminDb.collection('financial_notifications').add(payload);
 
       // Também grava na coleção 'notifications' para aparecer no Header do Restaurante
       const genericPayload = JSON.parse(JSON.stringify({
@@ -48,7 +47,7 @@ export class FinancialNotificationService {
         status: 'unread',
         createdAt: new Date().toISOString()
       }));
-      await addDoc(collection(db, 'notifications'), genericPayload).catch(err => console.warn('Erro ao salvar notificação genérica:', err));
+      await adminDb.collection('notifications').add(genericPayload).catch(err => console.warn('Erro ao salvar notificação genérica:', err));
 
       console.log(`[FinancialNotificationService] Alerta financeiro registrado [${event.type}] para restaurante ${event.restaurantId}`);
       return docRef.id;
@@ -63,13 +62,11 @@ export class FinancialNotificationService {
    */
   static async getRestaurantNotifications(restaurantId: string, limitCount = 20): Promise<FinancialNotificationEvent[]> {
     try {
-      const q = query(
-        collection(db, 'financial_notifications'),
-        where('restaurantId', '==', restaurantId),
-        orderBy('createdAt', 'desc'),
-        limit(limitCount)
-      );
-      const snap = await getDocs(q);
+      const snap = await adminDb.collection('financial_notifications')
+        .where('restaurantId', '==', restaurantId)
+        .orderBy('createdAt', 'desc')
+        .limit(limitCount)
+        .get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() } as FinancialNotificationEvent));
     } catch (err) {
       console.warn('Erro ao buscar notificações financeiras:', err);
@@ -77,3 +74,4 @@ export class FinancialNotificationService {
     }
   }
 }
+

@@ -32,7 +32,6 @@ import {
   PaymentService, 
   BillingService 
 } from '../../services/financial';
-import { BillingScheduler } from '../../services/financial/BillingScheduler';
 import { Invoice, Subscription, Receipt, PaymentHistoryLog, InvoicePaymentMethod } from '../../types/financial';
 import FinancialKPIs from '../../components/master/financial/FinancialKPIs';
 import InvoicesTable from '../../components/master/financial/InvoicesTable';
@@ -244,9 +243,11 @@ export default function MasterFinancial() {
             onClick={async () => {
               const tid = toast.loading('Executando automações financeiras...');
               try {
-                const res = await BillingScheduler.runAllAutomations(true);
+                const response = await fetch('/api/scheduler/billing-check?force=true', { method: 'POST' });
+                const data = await response.json();
+                const res = data.result || {};
                 toast.dismiss(tid);
-                toast.success(`Automações concluídas! Trials expirados: ${res.expiredTrialsCount}, Bloqueados por inadimplência: ${res.blockedUnpaidCount}, Alertas gerados: ${res.notificationsCount}`);
+                toast.success(`Automações concluídas! Trials expirados: ${res.expiredTrialsCount || 0}, Bloqueados por inadimplência: ${res.blockedUnpaidCount || 0}, Alertas gerados: ${res.notificationsCount || 0}`);
               } catch (err: any) {
                 toast.dismiss(tid);
                 toast.error('Erro ao executar automações.');

@@ -1,7 +1,5 @@
-import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { adminDb } from '../firebaseAdmin';
 import { Restaurant } from '../../types';
-import { PaymentService } from './PaymentService';
 import { FinancialNotificationService } from './FinancialNotificationService';
 
 export interface SchedulerRunResult {
@@ -16,6 +14,29 @@ export interface SchedulerRunResult {
 export class BillingScheduler {
   private static lastRunTimestamp = 0;
   private static MIN_RUN_INTERVAL_MS = 10 * 1000; // 10 segundos para evitar chamadas redundantes em rajada
+
+  private static async getPaymentSettings(): Promise<{ defaultDueDays?: number }> {
+    try {
+      const snap = await adminDb.collection('payment_settings').doc('main_settings').get();
+      if (snap.exists) {
+        return snap.data() as any;
+      }
+    } catch (err) {
+      console.warn('[BillingScheduler] Erro ao buscar payment_settings:', err);
+    }
+    return { defaultDueDays: 5 };
+  }
+
+  private static async logPaymentEvent(event: { restaurantId: string; restaurantName?: string; action: string; description: string; performedBy: string }): Promise<void> {
+    try {
+      await adminDb.collection('payment_history').add({
+        ...event,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      console.warn('[BillingScheduler] Erro ao gravar log do histórico financeiro:', err);
+    }
+  }
 
   /**
    * Executa todas as tarefas automáticas de ciclo de vida das assinaturas:
@@ -82,7 +103,7 @@ export class BillingScheduler {
     let notificationsCount = 0;
 
     try {
-      const snap = await getDocs(collection(db, 'restaurants'));
+      const snap = await adminDb.collection('restaurants').get();
       const now = new Date();
 
       for (const d of snap.docs) {
@@ -100,13 +121,13 @@ export class BillingScheduler {
 
           if (remainingDays <= 0) {
             // Trial encerrado -> altera status para expired e bloqueia modulos administrativos
-            await updateDoc(doc(db, 'restaurants', rest.id), {
+            await adminDb.collection('restaurants').doc(rest.id).update({
               status: 'expired',
               subscriptionStatus: 'expired',
               updatedAt: now.toISOString()
             });
 
-            await PaymentService.logPaymentEvent({
+            await this.logPaymentEvent({
               restaurantId: rest.id,
               restaurantName: rest.name,
               action: 'trial_expired',
@@ -153,8 +174,7 @@ export class BillingScheduler {
     let notificationsCount = 0;
 
     try {
-      const q = query(collection(db, 'restaurants'), where('subscriptionStatus', '==', 'past_due'));
-      const snap = await getDocs(q);
+      const snap = await adminDb.collection('restaurants').where('subscriptionStatus', '==', 'past_due').get();
       const now = new Date();
 
       for (const d of snap.docs) {
@@ -162,7 +182,7 @@ export class BillingScheduler {
         const rest = { id: d.id, ...d.data() } as Restaurant;
         
         // Verifica tolerância (padrão 5 dias)
-        const settings = await PaymentService.getPaymentSettings();
+        const settings = await this.getPaymentSettings();
         const toleranceDays = settings.defaultDueDays || 5;
 
         let updatedAtMs = rest.updatedAt ? new Date(rest.updatedAt).getTime() : now.getTime();
@@ -171,13 +191,13 @@ export class BillingScheduler {
 
         if (pastDueDays >= toleranceDays) {
           // Ultrapassou a tolerância -> Bloqueia por inadimplência (status = unpaid)
-          await updateDoc(doc(db, 'restaurants', rest.id), {
+          await adminDb.collection('restaurants').doc(rest.id).update({
             status: 'unpaid',
             subscriptionStatus: 'unpaid',
             updatedAt: now.toISOString()
           });
 
-          await PaymentService.logPaymentEvent({
+          await this.logPaymentEvent({
             restaurantId: rest.id,
             restaurantName: rest.name,
             action: 'block_unpaid',
@@ -222,8 +242,7 @@ export class BillingScheduler {
     let notificationsCount = 0;
 
     try {
-      const q = query(collection(db, 'restaurants'), where('subscriptionStatus', '==', 'active'));
-      const snap = await getDocs(q);
+      const snap = await adminDb.collection('restaurants').where('subscriptionStatus', '==', 'active').get();
       const now = new Date();
 
       for (const d of snap.docs) {
@@ -262,7 +281,7 @@ export class BillingScheduler {
       const nextDue = new Date();
       nextDue.setDate(nextDue.getDate() + 30);
 
-      await updateDoc(doc(db, 'restaurants', restaurantId), {
+      await adminDb.collection('restaurants').doc(restaurantId).update({
         status: 'active',
         subscriptionStatus: 'active',
         nextDueDate: nextDue.toISOString().split('T')[0],
@@ -270,7 +289,7 @@ export class BillingScheduler {
         updatedAt: now
       });
 
-      await PaymentService.logPaymentEvent({
+      await this.logPaymentEvent({
         restaurantId,
         restaurantName: restaurantName || 'Restaurante',
         action: 'unblock_reactivated',
@@ -292,3 +311,5 @@ export class BillingScheduler {
     }
   }
 }
+
+

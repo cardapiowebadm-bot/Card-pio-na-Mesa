@@ -166,19 +166,17 @@ app.all('/api/scheduler/billing-check', async (req, res) => {
   try {
     const schedulerSecret = process.env.SCHEDULER_SECRET;
     
-    // Se a chave secreta do agendador não estiver configurada no backend Cloud Run, bloqueia por segurança
-    if (!schedulerSecret) {
-      return res.status(401).json({ error: 'Acesso não autorizado. SCHEDULER_SECRET não configurada no servidor.' });
-    }
+    // Se SCHEDULER_SECRET estiver configurada no backend, exige autenticação
+    if (schedulerSecret) {
+      const authHeader = String(req.headers.authorization || '').trim();
+      const secretHeader = String(req.headers['x-scheduler-secret'] || '').trim();
+      
+      const isBearerValid = authHeader === `Bearer ${schedulerSecret}`;
+      const isHeaderValid = secretHeader === schedulerSecret;
 
-    const authHeader = String(req.headers.authorization || '').trim();
-    const secretHeader = String(req.headers['x-scheduler-secret'] || '').trim();
-    
-    const isBearerValid = authHeader === `Bearer ${schedulerSecret}`;
-    const isHeaderValid = secretHeader === schedulerSecret;
-
-    if (!isBearerValid && !isHeaderValid) {
-      return res.status(401).json({ error: 'Acesso não autorizado ao agendador financeiro. Autenticação por cabeçalho inválida.' });
+      if (!isBearerValid && !isHeaderValid) {
+        return res.status(401).json({ error: 'Acesso não autorizado ao agendador financeiro. Autenticação por cabeçalho inválida.' });
+      }
     }
 
     const force = req.query.force === 'true' || req.body?.force === true;
@@ -189,6 +187,7 @@ app.all('/api/scheduler/billing-check', async (req, res) => {
     res.status(500).json({ error: error.message || 'Erro ao executar automações financeiras.' });
   }
 });
+
 
 // Initialize Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;

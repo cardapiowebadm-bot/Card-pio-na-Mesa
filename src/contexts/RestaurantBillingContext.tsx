@@ -15,7 +15,6 @@ import { SubscriptionService } from '../services/financial/SubscriptionService';
 import { ReceiptService } from '../services/financial/ReceiptService';
 import { PaymentService } from '../services/financial/PaymentService';
 import { PlanService } from '../services/PlanService';
-import { BillingScheduler } from '../services/financial/BillingScheduler';
 import { toast } from 'react-hot-toast';
 
 interface RestaurantBillingContextData {
@@ -95,8 +94,8 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
     loadRestaurantBilling();
 
     // Executa verificação de automações de ciclo de vida financeiro (Trials, Inadimplência, Alertas)
-    BillingScheduler.runAllAutomations().catch(err => {
-      console.warn('Erro na execução automática do BillingScheduler:', err);
+    fetch('/api/scheduler/billing-check', { method: 'POST' }).catch(err => {
+      console.warn('Erro na execução automática do agendador financeiro:', err);
     });
   }, [restaurantId]);
 
