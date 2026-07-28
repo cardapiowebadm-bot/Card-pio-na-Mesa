@@ -1,26 +1,8 @@
 import { initializeApp, getApps, cert, applicationDefault, App } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
-const getAdminEnv = (key: string): string => {
-  try {
-    if (typeof process !== 'undefined' && (process as any)?.env?.[key]) {
-      return (process as any).env[key];
-    }
-  } catch (_e) {
-    // ignore
-  }
-  try {
-    if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.[key]) {
-      return (import.meta as any).env[key];
-    }
-  } catch (_e) {
-    // ignore
-  }
-  return '';
-};
-
-export const FIREBASE_ADMIN_PROJECT_ID = getAdminEnv('FIREBASE_PROJECT_ID') || getAdminEnv('VITE_FIREBASE_PROJECT_ID') || 'gen-lang-client-0103104761';
-export const FIREBASE_ADMIN_DATABASE_ID = getAdminEnv('FIREBASE_DATABASE_ID') || getAdminEnv('VITE_FIREBASE_DATABASE_ID') || 'ai-studio-cardpionamesa-3eb2edfc-540d-4280-bd64-f82c4228f71b';
+export const FIREBASE_ADMIN_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0103104761';
+export const FIREBASE_ADMIN_DATABASE_ID = process.env.FIREBASE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || 'ai-studio-cardpionamesa-3eb2edfc-540d-4280-bd64-f82c4228f71b';
 
 let adminAppInstance: App | null = null;
 let dbInstance: Firestore | null = null;
@@ -33,7 +15,7 @@ export function getAdminApp(): App {
     } else {
       let credential;
 
-      const serviceAccountKey = getAdminEnv('FIREBASE_SERVICE_ACCOUNT_KEY');
+      const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
       if (serviceAccountKey && serviceAccountKey.trim() !== '') {
         try {
           const sa = JSON.parse(serviceAccountKey);
