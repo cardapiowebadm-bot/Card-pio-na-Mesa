@@ -58,10 +58,15 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     }
 
     const result = await StripeWebhookService.handleWebhookEvent(event);
-    res.json(result);
+    return res.status(200).json(result);
   } catch (error: any) {
-    console.error('Erro no endpoint POST /api/stripe/webhook:', error);
-    res.status(500).json({ error: error.message || 'Erro interno no processamento do webhook.' });
+    console.error('[Webhook Endpoint] Erro genérico no processamento do webhook Stripe:', error);
+    return res.status(200).json({ 
+      received: true, 
+      handled: false, 
+      message: 'Evento recebido pelo servidor, erro de processamento registrado nos logs.',
+      error: error.message || 'Erro interno.'
+    });
   }
 });
 
