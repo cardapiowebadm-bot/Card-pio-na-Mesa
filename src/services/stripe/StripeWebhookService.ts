@@ -1,23 +1,12 @@
 import Stripe from 'stripe';
-import { 
-  collection, 
-  getDocs, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  query, 
-  where 
-} from 'firebase/firestore';
-import { db } from '../firebase';
 import { StripeService } from './StripeService';
-import { StripeAuditService } from './StripeAuditService';
 import { StripeSubscriptionService } from './StripeSubscriptionService';
-import { SubscriptionService } from '../financial/SubscriptionService';
-import { ReceiptService } from '../financial/ReceiptService';
-import { PaymentService } from '../financial/PaymentService';
-import { FinancialNotificationService } from '../financial/FinancialNotificationService';
-import { SubscriptionStatus, Invoice } from '../../types/financial';
+import { SubscriptionStatus } from '../../types/financial';
+import { 
+  adminDb, 
+  FIREBASE_ADMIN_PROJECT_ID, 
+  FIREBASE_ADMIN_DATABASE_ID 
+} from '../firebaseAdmin';
 
 export interface ProcessedWebhookResult {
   received: boolean;
@@ -67,7 +56,7 @@ function formatCompetence(timestampMs: number): string {
 
 export class StripeWebhookService {
   /**
-   * Constrói e valida o evento do webhook utilizando a chave secreta de webhook (STRIPE_WEBHOOK_SECRET).
+   * Constrói e valida o evento do webhook utilizando a chave secreta (STRIPE_WEBHOOK_SECRET).
    */
   public static constructEventAndVerifySignature(
     rawBody: string | Buffer,
@@ -79,7 +68,7 @@ export class StripeWebhookService {
     const payloadStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf-8');
 
     if (!stripe) {
-      console.warn('[StripeWebhookService] SDK do Stripe não inicializado. Verifique a chave STRIPE_SECRET_KEY. Parseando evento diretamente.');
+      console.warn('[StripeWebhookService] SDK do Stripe não inicializado. Parseando evento diretamente sem validação de assinatura.');
       return JSON.parse(payloadStr) as Stripe.Event;
     }
 
@@ -92,8 +81,7 @@ export class StripeWebhookService {
       return stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
     } catch (err: any) {
       console.error('[StripeWebhookService] Falha ao verificar assinatura com STRIPE_WEBHOOK_SECRET:', err.message);
-      console.warn('[StripeWebhookService] Executando fallback: parseando evento JSON sem travar o processamento.');
-      return JSON.parse(payloadStr) as Stripe.Event;
+      throw new Error(`Falha na validação de assinatura do webhook Stripe: ${err.message}`);
     }
   }
 
@@ -101,7 +89,7 @@ export class StripeWebhookService {
    * Manipulador principal de eventos recebidos do Stripe.
    */
   public static async handleWebhookEvent(event: Stripe.Event): Promise<ProcessedWebhookResult> {
-    console.log(`[StripeWebhookService] Processando evento Stripe [Type: ${event?.type}] [ID: ${event?.id}]`);
+    console.log(`[StripeWebhookService] Processing Stripe Event [Type: ${event?.type}] [ID: ${event?.id}] | Project: "${FIREBASE_ADMIN_PROJECT_ID}" | Database: "${FIREBASE_ADMIN_DATABASE_ID}"`);
 
     if (!event || !event.type) {
       return {
@@ -112,12 +100,11 @@ export class StripeWebhookService {
       };
     }
 
-    // 1. Verificação de Idempotência: Ignorar se event.id já foi processado anteriormente
+    // 1. Verificação de Idempotência
     if (event?.id) {
       try {
-        const eventRef = doc(db, 'stripe_processed_events', event.id);
-        const eventSnap = await getDoc(eventRef);
-        if (eventSnap.exists()) {
+        const eventDoc = await adminDb.collection('stripe_processed_events').doc(event.id).get();
+        if (eventDoc.exists) {
           console.log(`[StripeWebhookService] Evento ${event.id} (${event.type}) já processado previamente. Ignorando reenvio.`);
           return {
             received: true,
@@ -127,7 +114,7 @@ export class StripeWebhookService {
           };
         }
       } catch (err) {
-        console.warn('[StripeWebhookService] Erro ao verificar idempotência de evento no Firestore:', err);
+        console.warn('[StripeWebhookService] Alerta na verificação de idempotência no Firestore:', err);
       }
     }
 
@@ -136,67 +123,35 @@ export class StripeWebhookService {
     // Processamento isolado por tipo de evento
     switch (event.type) {
       case 'checkout.session.completed':
-        try {
-          await this.handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar checkout.session.completed [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session, eventCreated);
         break;
 
       case 'customer.subscription.created':
-        try {
-          await this.handleCustomerSubscriptionCreated(event.data.object as Stripe.Subscription, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar customer.subscription.created [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleCustomerSubscriptionCreated(event.data.object as Stripe.Subscription, eventCreated);
         break;
 
       case 'customer.subscription.updated':
-        try {
-          await this.handleCustomerSubscriptionUpdated(event.data.object as Stripe.Subscription, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar customer.subscription.updated [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleCustomerSubscriptionUpdated(event.data.object as Stripe.Subscription, eventCreated);
         break;
 
       case 'customer.subscription.deleted':
-        try {
-          await this.handleCustomerSubscriptionDeleted(event.data.object as Stripe.Subscription, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar customer.subscription.deleted [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleCustomerSubscriptionDeleted(event.data.object as Stripe.Subscription, eventCreated);
         break;
 
       case 'invoice.created':
-        try {
-          await this.handleInvoiceCreated(event.data.object as any);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar invoice.created [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleInvoiceCreated(event.data.object as any);
         break;
 
       case 'invoice.finalized':
-        try {
-          await this.handleInvoiceFinalized(event.data.object as any);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar invoice.finalized [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleInvoiceFinalized(event.data.object as any);
         break;
 
       case 'invoice.paid':
-        try {
-          await this.handleInvoicePaid(event.data.object as any, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar invoice.paid [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleInvoicePaid(event.data.object as any, eventCreated);
         break;
 
       case 'invoice.payment_failed':
-        try {
-          await this.handleInvoicePaymentFailed(event.data.object as any, eventCreated);
-        } catch (err: any) {
-          console.error(`[StripeWebhookService] Erro ao processar invoice.payment_failed [Event ID: ${event.id}]:`, err);
-        }
+        await this.handleInvoicePaymentFailed(event.data.object as any, eventCreated);
         break;
 
       default:
@@ -209,16 +164,18 @@ export class StripeWebhookService {
         };
     }
 
-    // 2. Registrar evento como processado para garantir idempotência em reenvios
+    // 2. Registrar evento como processado
     if (event?.id) {
       try {
-        await setDoc(doc(db, 'stripe_processed_events', event.id), {
+        await adminDb.collection('stripe_processed_events').doc(event.id).set({
           processedAt: new Date().toISOString(),
           type: event.type,
-          created: eventCreated
+          created: eventCreated,
+          projectId: FIREBASE_ADMIN_PROJECT_ID,
+          databaseId: FIREBASE_ADMIN_DATABASE_ID
         });
       } catch (err) {
-        console.warn('[StripeWebhookService] Erro ao salvar ID de evento processado no Firestore:', err);
+        console.warn('[StripeWebhookService] Erro ao registrar ID de evento processado no Firestore:', err);
       }
     }
 
@@ -230,196 +187,215 @@ export class StripeWebhookService {
     };
   }
 
-  // --- BUSCA AUXILIAR DE RESTAURANTE ---
+  // --- BUSCA DETERMINÍSTICA DE RESTAURANTE ---
   private static async findRestaurantId(
     metadataRestId?: string, 
     customerId?: string, 
-    subscriptionId?: string
+    subscriptionId?: string,
+    customerEmail?: string
   ): Promise<{ restaurantId: string | null; restaurantName: string }> {
+    // 1. Busca Direta por metadata restaurantId
     if (metadataRestId && metadataRestId !== 'desconhecido') {
       try {
-        const restSnap = await getDoc(doc(db, 'restaurants', metadataRestId));
-        if (restSnap.exists()) {
-          return { restaurantId: metadataRestId, restaurantName: restSnap.data().name || 'Restaurante' };
+        const restDoc = await adminDb.collection('restaurants').doc(metadataRestId).get();
+        if (restDoc.exists) {
+          const name = restDoc.data()?.name || 'Restaurante';
+          console.log(`[StripeWebhookService] Restaurante localizado via metadata.restaurantId: ${metadataRestId} ("${name}")`);
+          return { restaurantId: metadataRestId, restaurantName: name };
+        } else {
+          console.warn(`[StripeWebhookService] Metadata restaurantId ${metadataRestId} fornecido, mas documento não existe no Firestore.`);
         }
       } catch (err) {
-        console.warn('[StripeWebhookService] Erro ao buscar restaurante por ID:', err);
+        console.warn(`[StripeWebhookService] Erro ao buscar documento em restaurants/${metadataRestId}:`, err);
       }
     }
 
+    // 2. Busca por stripeCustomerId
     if (customerId) {
       try {
-        const q = query(collection(db, 'restaurants'), where('stripeCustomerId', '==', customerId));
-        const snap = await getDocs(q);
+        const snap = await adminDb.collection('restaurants').where('stripeCustomerId', '==', customerId).limit(1).get();
         if (!snap.empty) {
-          const d = snap.docs[0];
-          return { restaurantId: d.id, restaurantName: d.data().name || 'Restaurante' };
+          const docSnap = snap.docs[0];
+          const name = docSnap.data().name || 'Restaurante';
+          console.log(`[StripeWebhookService] Restaurante localizado via stripeCustomerId ${customerId}: ${docSnap.id} ("${name}")`);
+          return { restaurantId: docSnap.id, restaurantName: name };
         }
       } catch (err) {
-        console.warn('[StripeWebhookService] Erro ao buscar restaurante por stripeCustomerId:', err);
+        console.warn(`[StripeWebhookService] Erro ao buscar restaurante por stripeCustomerId (${customerId}):`, err);
       }
     }
 
+    // 3. Busca por stripeSubscriptionId
     if (subscriptionId) {
       try {
-        const q = query(collection(db, 'restaurants'), where('stripeSubscriptionId', '==', subscriptionId));
-        const snap = await getDocs(q);
+        const snap = await adminDb.collection('restaurants').where('stripeSubscriptionId', '==', subscriptionId).limit(1).get();
         if (!snap.empty) {
-          const d = snap.docs[0];
-          return { restaurantId: d.id, restaurantName: d.data().name || 'Restaurante' };
+          const docSnap = snap.docs[0];
+          const name = docSnap.data().name || 'Restaurante';
+          console.log(`[StripeWebhookService] Restaurante localizado via stripeSubscriptionId ${subscriptionId}: ${docSnap.id} ("${name}")`);
+          return { restaurantId: docSnap.id, restaurantName: name };
         }
       } catch (err) {
-        console.warn('[StripeWebhookService] Erro ao buscar restaurante por stripeSubscriptionId:', err);
+        console.warn(`[StripeWebhookService] Erro ao buscar restaurante por stripeSubscriptionId (${subscriptionId}):`, err);
       }
     }
 
-    return { restaurantId: metadataRestId || null, restaurantName: 'Restaurante' };
-  }
+    // 4. Busca por email (Fallback secundário)
+    if (customerEmail) {
+      try {
+        const snap = await adminDb.collection('restaurants').where('email', '==', customerEmail).limit(1).get();
+        if (!snap.empty) {
+          const docSnap = snap.docs[0];
+          const name = docSnap.data().name || 'Restaurante';
+          console.log(`[StripeWebhookService] Restaurante localizado via email (${customerEmail}): ${docSnap.id} ("${name}")`);
+          return { restaurantId: docSnap.id, restaurantName: name };
+        }
+      } catch (err) {
+        console.warn(`[StripeWebhookService] Erro ao buscar restaurante por email (${customerEmail}):`, err);
+      }
+    }
 
-  // --- HANDLERS COM SINCRONIZAÇÃO NO FIRESTORE ---
+    console.error(`[StripeWebhookService] RESTAURANTE NÃO ENCONTRADO! Parametros: metadataRestId=${metadataRestId}, customerId=${customerId}, subId=${subscriptionId}, email=${customerEmail}`);
+    return { restaurantId: null, restaurantName: 'Restaurante' };
+  }
 
   private static async checkOutOfOrder(restaurantId: string, eventCreated: number): Promise<boolean> {
     try {
-      const restSnap = await getDoc(doc(db, 'restaurants', restaurantId));
-      if (restSnap.exists()) {
-        const data = restSnap.data();
-        if (data.lastStripeEventCreated && data.lastStripeEventCreated > eventCreated) {
-          console.warn(`[StripeWebhookHandler] Evento fora de ordem detectado (evento: ${eventCreated}, existente: ${data.lastStripeEventCreated}). Ignorando atualização de estado.`);
+      const restDoc = await adminDb.collection('restaurants').doc(restaurantId).get();
+      if (restDoc.exists) {
+        const data = restDoc.data();
+        if (data?.lastStripeEventCreated && data.lastStripeEventCreated > eventCreated) {
+          console.warn(`[StripeWebhookService] Evento fora de ordem detectado (evento: ${eventCreated}, existente no Firestore: ${data.lastStripeEventCreated}). Ignorando atualização obsoleta.`);
           return true;
         }
       }
     } catch (err) {
-      console.warn('[StripeWebhookHandler] Erro ao verificar sequenciamento de eventos:', err);
+      console.warn('[StripeWebhookService] Erro ao verificar sequenciamento de eventos:', err);
     }
     return false;
   }
 
+  // --- HANDLERS COM GRAVAÇÃO CRÍTICA NO FIRESTORE (ADMIN SDK) ---
+
   private static async handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventCreated: number): Promise<void> {
-    try {
-      const initialRestId = session.metadata?.restaurantId || 'desconhecido';
-      const planId = session.metadata?.planId || 'gourmet';
-      const customerId = typeof session.customer === 'string' ? session.customer : (session.customer as any)?.id || '';
-      const subscriptionId = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any)?.id || '';
+    const initialRestId = session.metadata?.restaurantId || (session as any).subscription_data?.metadata?.restaurantId || 'desconhecido';
+    const planId = session.metadata?.planId || (session as any).subscription_data?.metadata?.planId || 'gourmet';
+    const customerId = typeof session.customer === 'string' ? session.customer : (session.customer as any)?.id || '';
+    const subscriptionId = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any)?.id || '';
+    const customerEmail = session.customer_details?.email || session.customer_email || undefined;
 
-      const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscriptionId);
+    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscriptionId, customerEmail);
 
-      console.log(`[StripeWebhookHandler] [checkout.session.completed] Session: ${session.id}, Restaurant: ${restaurantId}`);
+    console.log(`[StripeWebhookService] [checkout.session.completed] Session: ${session.id}, Restaurant: ${restaurantId}, Customer: ${customerId}, Plan: ${planId}`);
 
-      if (restaurantId) {
-        const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
-        if (isStale) return;
+    if (!restaurantId) {
+      throw new Error(`[checkout.session.completed] Falha crítica: Impossível identificar restaurante para a sessão Stripe ${session.id}.`);
+    }
 
-        let priceId = '';
-        let currentPeriodStart = new Date().toISOString();
-        let currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        let subStatus: SubscriptionStatus = 'active';
+    const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
+    if (isStale) return;
 
-        if (subscriptionId) {
-          try {
-            const subDetails = await StripeSubscriptionService.getSubscription(subscriptionId);
-            if (subDetails) {
-              priceId = subDetails.priceId || '';
-              currentPeriodStart = subDetails.currentPeriodStart || currentPeriodStart;
-              currentPeriodEnd = subDetails.currentPeriodEnd || currentPeriodEnd;
-              subStatus = mapStripeStatus(subDetails.status);
-            }
-          } catch (err) {
-            console.warn('[StripeWebhookHandler] Não foi possível obter detalhes da assinatura Stripe:', err);
-          }
-        }
+    let priceId = '';
+    let currentPeriodStart = new Date().toISOString();
+    let currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    let subStatus: SubscriptionStatus = 'active';
 
-        const now = new Date().toISOString();
-        const restRef = doc(db, 'restaurants', restaurantId);
-
-        try {
-          await updateDoc(restRef, {
-            stripeCustomerId: customerId,
-            stripeSubscriptionId: subscriptionId,
-            stripePriceId: priceId,
-            subscriptionStatus: subStatus,
-            plan: planId,
-            planId: planId,
-            startDate: currentPeriodStart,
-            currentPeriodStart,
-            currentPeriodEnd,
-            nextDueDate: currentPeriodEnd.split('T')[0],
-            renewalDate: currentPeriodEnd,
-            lastStripeEventCreated: eventCreated,
-            updatedAt: now
-          });
-        } catch (upErr) {
-          console.warn('[StripeWebhookHandler] updateDoc em restaurants falhou, executando setDoc merge:', upErr);
-          try {
-            await setDoc(restRef, {
-              stripeCustomerId: customerId,
-              stripeSubscriptionId: subscriptionId,
-              stripePriceId: priceId,
-              subscriptionStatus: subStatus,
-              plan: planId,
-              planId: planId,
-              startDate: currentPeriodStart,
-              currentPeriodStart,
-              currentPeriodEnd,
-              nextDueDate: currentPeriodEnd.split('T')[0],
-              renewalDate: currentPeriodEnd,
-              lastStripeEventCreated: eventCreated,
-              updatedAt: now
-            }, { merge: true });
-          } catch (setErr) {
-            console.error('[StripeWebhookHandler] setDoc em restaurants falhou:', setErr);
-          }
-        }
-
-        // Upsert na coleção 'subscriptions'
-        try {
-          await SubscriptionService.upsertSubscription({
-            restaurantId,
-            restaurantName,
-            planId,
-            planName: getPlanName(planId),
-            price: getPlanPrice(planId),
-            status: subStatus,
-            startDate: currentPeriodStart,
-            renewalDate: currentPeriodEnd,
-            autoRenew: true,
-            isTrial: false,
-            stripeCustomerId: customerId,
-            stripeSubscriptionId: subscriptionId,
-            stripePriceId: priceId,
-            stripeStatus: subStatus
-          });
-        } catch (subErr) {
-          console.error('[StripeWebhookHandler] Erro ao salvar assinatura no Firestore:', subErr);
-        }
-
-        // Registrar Histórico de Pagamentos
-        try {
-          await PaymentService.logPaymentEvent({
-            restaurantId,
-            restaurantName,
-            action: 'plan_changed',
-            description: `Checkout Stripe concluído com sucesso. Assinatura do ${getPlanName(planId)} ativada.`,
-            performedBy: 'stripe_webhook',
-            amount: session.amount_total ? session.amount_total / 100 : getPlanPrice(planId)
-          });
-        } catch (payErr) {
-          console.error('[StripeWebhookHandler] Erro ao registrar log de pagamento:', payErr);
-        }
-      }
-
+    if (subscriptionId) {
       try {
-        await StripeAuditService.logAuditEvent({
-          restaurantId: restaurantId || 'desconhecido',
-          eventType: 'stripe_checkout_completed',
-          description: `Checkout concluído para o restaurante (Session ID: ${session.id})`,
-          amount: session.amount_total ? session.amount_total / 100 : undefined,
-          metadata: { sessionId: session.id, customerId, subscriptionId }
-        });
-      } catch (auditErr) {
-        console.error('[StripeWebhookHandler] Erro ao registrar auditoria de checkout:', auditErr);
+        const subDetails = await StripeSubscriptionService.getSubscription(subscriptionId);
+        if (subDetails) {
+          priceId = subDetails.priceId || '';
+          currentPeriodStart = subDetails.currentPeriodStart || currentPeriodStart;
+          currentPeriodEnd = subDetails.currentPeriodEnd || currentPeriodEnd;
+          subStatus = mapStripeStatus(subDetails.status);
+        }
+      } catch (err) {
+        console.warn('[StripeWebhookService] Não foi possível consultar detalhes da assinatura diretamente no Stripe:', err);
       }
-    } catch (err) {
-      console.error('[StripeWebhookHandler] Erro geral em handleCheckoutSessionCompleted:', err);
+    }
+
+    const now = new Date().toISOString();
+
+    // GRAVAÇÃO CRÍTICA 1: Atualizar Restaurante no Firestore via Firebase Admin SDK
+    try {
+      await adminDb.collection('restaurants').doc(restaurantId).set({
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+        stripePriceId: priceId,
+        subscriptionStatus: subStatus,
+        plan: planId,
+        planId: planId,
+        startDate: currentPeriodStart,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextDueDate: currentPeriodEnd.split('T')[0],
+        renewalDate: currentPeriodEnd,
+        lastStripeEventCreated: eventCreated,
+        updatedAt: now
+      }, { merge: true });
+
+      console.log(`[StripeWebhookService] [SUCCESS] Documento restaurants/${restaurantId} atualizado com Sucesso! Plano: ${planId}, Status: ${subStatus}`);
+    } catch (dbErr: any) {
+      console.error(`[StripeWebhookService] [CRITICAL ERROR] Falha ao gravar atualização do restaurante ${restaurantId} no Firestore:`, dbErr);
+      throw new Error(`Erro de persistência no Firestore (restaurants/${restaurantId}): ${dbErr.message}`);
+    }
+
+    // GRAVAÇÃO CRÍTICA 2: Upsert na coleção 'subscriptions' via Firebase Admin SDK
+    try {
+      const subDocRef = adminDb.collection('subscriptions').doc(`sub_${restaurantId}`);
+      await subDocRef.set({
+        id: `sub_${restaurantId}`,
+        restaurantId,
+        restaurantName,
+        planId,
+        planName: getPlanName(planId),
+        price: getPlanPrice(planId),
+        status: subStatus,
+        startDate: currentPeriodStart,
+        renewalDate: currentPeriodEnd,
+        autoRenew: true,
+        isTrial: false,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+        stripePriceId: priceId,
+        stripeStatus: subStatus,
+        updatedAt: now,
+        createdAt: now
+      }, { merge: true });
+
+      console.log(`[StripeWebhookService] [SUCCESS] Documento subscriptions/sub_${restaurantId} atualizado com Sucesso!`);
+    } catch (subErr: any) {
+      console.error(`[StripeWebhookService] [CRITICAL ERROR] Falha ao gravar documento de assinatura no Firestore:`, subErr);
+      throw new Error(`Erro de persistência no Firestore (subscriptions/sub_${restaurantId}): ${subErr.message}`);
+    }
+
+    // Operações secundárias (não-fatais)
+    try {
+      await adminDb.collection('payment_history').add({
+        restaurantId,
+        restaurantName,
+        action: 'plan_changed',
+        description: `Checkout Stripe concluído com sucesso. Assinatura do ${getPlanName(planId)} ativada.`,
+        performedBy: 'stripe_webhook',
+        amount: session.amount_total ? session.amount_total / 100 : getPlanPrice(planId),
+        timestamp: now,
+        createdAt: now
+      });
+    } catch (payErr) {
+      console.warn('[StripeWebhookService] Falha não-fatal ao criar log de pagamento:', payErr);
+    }
+
+    try {
+      await adminDb.collection('stripe_audit_logs').add({
+        restaurantId,
+        eventType: 'stripe_checkout_completed',
+        description: `Checkout concluído para o restaurante (Session ID: ${session.id})`,
+        amount: session.amount_total ? session.amount_total / 100 : undefined,
+        metadata: { sessionId: session.id, customerId, subscriptionId, planId },
+        timestamp: now
+      });
+    } catch (auditErr) {
+      console.warn('[StripeWebhookService] Falha não-fatal ao criar registro de auditoria:', auditErr);
     }
   }
 
@@ -432,166 +408,147 @@ export class StripeWebhookService {
   }
 
   private static async handleCustomerSubscriptionDeleted(subscription: Stripe.Subscription, eventCreated: number): Promise<void> {
+    const initialRestId = subscription.metadata?.restaurantId;
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : (subscription.customer as any)?.id || '';
+    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscription.id);
+
+    console.log(`[StripeWebhookService] [customer.subscription.deleted] Subscription ID: ${subscription.id}, Restaurant: ${restaurantId}`);
+
+    if (!restaurantId) {
+      console.warn(`[StripeWebhookService] Assinatura ${subscription.id} cancelada, mas nenhum restaurante associado foi localizado.`);
+      return;
+    }
+
+    const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
+    if (isStale) return;
+
+    const now = new Date().toISOString();
+
+    // GRAVAÇÃO CRÍTICA: Cancelar restaurante no Firestore
     try {
-      const initialRestId = subscription.metadata?.restaurantId;
-      const customerId = typeof subscription.customer === 'string' ? subscription.customer : (subscription.customer as any)?.id || '';
-      const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscription.id);
+      await adminDb.collection('restaurants').doc(restaurantId).set({
+        subscriptionStatus: 'canceled',
+        lastStripeEventCreated: eventCreated,
+        updatedAt: now
+      }, { merge: true });
 
-      console.log(`[StripeWebhookHandler] [customer.subscription.deleted] Subscription ID: ${subscription.id}, Restaurant: ${restaurantId}`);
+      await adminDb.collection('subscriptions').doc(`sub_${restaurantId}`).set({
+        status: 'canceled',
+        canceledAt: now,
+        cancelReason: 'Cancelado no Stripe',
+        stripeSubscriptionId: subscription.id,
+        stripeCustomerId: customerId,
+        stripeStatus: 'canceled',
+        updatedAt: now
+      }, { merge: true });
 
-      if (restaurantId) {
-        const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
-        if (!isStale) {
-          const now = new Date().toISOString();
-          try {
-            await updateDoc(doc(db, 'restaurants', restaurantId), {
-              subscriptionStatus: 'canceled',
-              lastStripeEventCreated: eventCreated,
-              updatedAt: now
-            });
-          } catch (upErr) {
-            console.warn('[StripeWebhookHandler] Erro ao atualizar restaurante cancelado:', upErr);
-          }
+      console.log(`[StripeWebhookService] [SUCCESS] Restaurante ${restaurantId} e assinatura marcados como CANCELADOS.`);
+    } catch (dbErr: any) {
+      console.error(`[StripeWebhookService] Erro ao gravar cancelamento no Firestore:`, dbErr);
+      throw new Error(`Erro ao persistir cancelamento no Firestore: ${dbErr.message}`);
+    }
 
-          try {
-            await SubscriptionService.upsertSubscription({
-              restaurantId,
-              restaurantName,
-              planId: subscription.metadata?.planId || 'gourmet',
-              planName: getPlanName(subscription.metadata?.planId || 'gourmet'),
-              price: getPlanPrice(subscription.metadata?.planId || 'gourmet'),
-              status: 'canceled',
-              canceledAt: now,
-              cancelReason: 'Cancelado no Stripe',
-              stripeSubscriptionId: subscription.id,
-              stripeCustomerId: customerId,
-              stripeStatus: 'canceled'
-            });
-          } catch (subErr) {
-            console.error('[StripeWebhookHandler] Erro ao cancelar assinatura no Firestore:', subErr);
-          }
-
-          try {
-            await PaymentService.logPaymentEvent({
-              restaurantId,
-              restaurantName,
-              action: 'stripe_canceled',
-              description: `Assinatura encerrada via Stripe (ID: ${subscription.id}).`,
-              performedBy: 'stripe_webhook'
-            });
-          } catch (payErr) {
-            console.error('[StripeWebhookHandler] Erro ao logar cancelamento de pagamento:', payErr);
-          }
-        }
-      }
-
-      try {
-        await StripeAuditService.logAuditEvent({
-          restaurantId: restaurantId || 'desconhecido',
-          eventType: 'stripe_canceled',
-          description: `Assinatura cancelada no Stripe (ID: ${subscription.id})`,
-          metadata: { subscriptionId: subscription.id }
-        });
-      } catch (auditErr) {
-        console.error('[StripeWebhookHandler] Erro ao registrar auditoria de cancelamento:', auditErr);
-      }
+    // Operações secundárias
+    try {
+      await adminDb.collection('payment_history').add({
+        restaurantId,
+        restaurantName,
+        action: 'stripe_canceled',
+        description: `Assinatura encerrada via Stripe (ID: ${subscription.id}).`,
+        performedBy: 'stripe_webhook',
+        timestamp: now
+      });
     } catch (err) {
-      console.error('[StripeWebhookHandler] Erro geral em handleCustomerSubscriptionDeleted:', err);
+      console.warn('[StripeWebhookService] Alerta em log de pagamento:', err);
     }
   }
 
   private static async syncSubscriptionToFirestore(
     subscription: Stripe.Subscription, 
-    eventType: any, 
+    eventType: string, 
     auditMessage: string,
     eventCreated: number
   ): Promise<void> {
+    const initialRestId = subscription.metadata?.restaurantId;
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : (subscription.customer as any)?.id || '';
+    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscription.id);
+
+    console.log(`[StripeWebhookService] [syncSubscriptionToFirestore] Event: ${eventType}, SubID: ${subscription.id}, Restaurant: ${restaurantId}`);
+
+    if (!restaurantId) {
+      throw new Error(`[${eventType}] Falha crítica: Não foi possível localizar o restaurante para a assinatura ${subscription.id}.`);
+    }
+
+    const priceId = subscription.items?.data?.[0]?.price?.id || '';
+    const planId = subscription.metadata?.planId || StripeService.getPlanIdForPrice(priceId) || 'gourmet';
+    const subStatus = mapStripeStatus(subscription.status);
+
+    const subAny = subscription as any;
+    const periodStartMs = (subAny.current_period_start || 0) * 1000;
+    const periodEndMs = (subAny.current_period_end || 0) * 1000;
+    const periodStart = periodStartMs > 0 ? new Date(periodStartMs).toISOString() : new Date().toISOString();
+    const periodEnd = periodEndMs > 0 ? new Date(periodEndMs).toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
+    if (isStale) return;
+
+    const now = new Date().toISOString();
+
+    // GRAVAÇÃO CRÍTICA: Atualizar restaurante e assinatura no Firestore
     try {
-      const initialRestId = subscription.metadata?.restaurantId;
-      const customerId = typeof subscription.customer === 'string' ? subscription.customer : (subscription.customer as any)?.id || '';
-      const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, subscription.id);
+      await adminDb.collection('restaurants').doc(restaurantId).set({
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscription.id,
+        stripePriceId: priceId,
+        subscriptionStatus: subStatus,
+        plan: planId,
+        planId: planId,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        nextDueDate: periodEnd.split('T')[0],
+        renewalDate: periodEnd,
+        lastStripeEventCreated: eventCreated,
+        updatedAt: now
+      }, { merge: true });
 
-      const priceId = subscription.items?.data?.[0]?.price?.id || '';
-      const planId = subscription.metadata?.planId || StripeService.getPlanIdForPrice(priceId) || 'gourmet';
-      const subStatus = mapStripeStatus(subscription.status);
+      await adminDb.collection('subscriptions').doc(`sub_${restaurantId}`).set({
+        id: `sub_${restaurantId}`,
+        restaurantId,
+        restaurantName,
+        planId,
+        planName: getPlanName(planId),
+        price: getPlanPrice(planId),
+        status: subStatus,
+        startDate: periodStart,
+        renewalDate: periodEnd,
+        autoRenew: !subAny.cancel_at_period_end,
+        isTrial: subStatus === 'trial' || subStatus === 'trialing',
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscription.id,
+        stripePriceId: priceId,
+        stripeStatus: subscription.status,
+        updatedAt: now
+      }, { merge: true });
 
-      const subAny = subscription as any;
-      const periodStartMs = (subAny.current_period_start || 0) * 1000;
-      const periodEndMs = (subAny.current_period_end || 0) * 1000;
-      const periodStart = periodStartMs > 0 ? new Date(periodStartMs).toISOString() : new Date().toISOString();
-      const periodEnd = periodEndMs > 0 ? new Date(periodEndMs).toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      console.log(`[StripeWebhookService] [SUCCESS] Sincronização de assinatura concluída com sucesso no Firestore para restaurante ${restaurantId} (Plano: ${planId}, Status: ${subStatus})`);
+    } catch (dbErr: any) {
+      console.error(`[StripeWebhookService] [CRITICAL ERROR] Erro na gravação do plano/assinatura no Firestore:`, dbErr);
+      throw new Error(`Erro de persistência de assinatura no Firestore: ${dbErr.message}`);
+    }
 
-      if (restaurantId) {
-        const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
-        if (!isStale) {
-          const now = new Date().toISOString();
-          try {
-            await updateDoc(doc(db, 'restaurants', restaurantId), {
-              stripeCustomerId: customerId,
-              stripeSubscriptionId: subscription.id,
-              stripePriceId: priceId,
-              subscriptionStatus: subStatus,
-              plan: planId,
-              planId: planId,
-              currentPeriodStart: periodStart,
-              currentPeriodEnd: periodEnd,
-              nextDueDate: periodEnd.split('T')[0],
-              renewalDate: periodEnd,
-              lastStripeEventCreated: eventCreated,
-              updatedAt: now
-            });
-          } catch (upErr) {
-            console.warn('[StripeWebhookHandler] Erro ao atualizar restaurante em syncSubscriptionToFirestore:', upErr);
-          }
-
-          try {
-            await SubscriptionService.upsertSubscription({
-              restaurantId,
-              restaurantName,
-              planId,
-              planName: getPlanName(planId),
-              price: getPlanPrice(planId),
-              status: subStatus,
-              startDate: periodStart,
-              renewalDate: periodEnd,
-              autoRenew: !subAny.cancel_at_period_end,
-              isTrial: subStatus === 'trial' || subStatus === 'trialing',
-              stripeCustomerId: customerId,
-              stripeSubscriptionId: subscription.id,
-              stripePriceId: priceId,
-              stripeStatus: subscription.status
-            });
-          } catch (subErr) {
-            console.error('[StripeWebhookHandler] Erro ao upsertSubscription em syncSubscriptionToFirestore:', subErr);
-          }
-
-          try {
-            await PaymentService.logPaymentEvent({
-              restaurantId,
-              restaurantName,
-              action: 'plan_changed',
-              description: `${auditMessage} Status: ${subStatus.toUpperCase()}`,
-              performedBy: 'stripe_webhook',
-              amount: getPlanPrice(planId)
-            });
-          } catch (payErr) {
-            console.error('[StripeWebhookHandler] Erro ao logPaymentEvent em syncSubscriptionToFirestore:', payErr);
-          }
-        }
-      }
-
-      try {
-        await StripeAuditService.logAuditEvent({
-          restaurantId: restaurantId || 'desconhecido',
-          eventType,
-          description: `${auditMessage} (Subscription ID: ${subscription.id})`,
-          metadata: { subscriptionId: subscription.id, status: subscription.status }
-        });
-      } catch (auditErr) {
-        console.error('[StripeWebhookHandler] Erro ao logAuditEvent em syncSubscriptionToFirestore:', auditErr);
-      }
-    } catch (err) {
-      console.error('[StripeWebhookHandler] Erro geral em syncSubscriptionToFirestore:', err);
+    // Operações secundárias
+    try {
+      await adminDb.collection('payment_history').add({
+        restaurantId,
+        restaurantName,
+        action: 'plan_changed',
+        description: `${auditMessage} Status: ${subStatus.toUpperCase()} (Plano: ${getPlanName(planId)})`,
+        performedBy: 'stripe_webhook',
+        amount: getPlanPrice(planId),
+        timestamp: now
+      });
+    } catch (payErr) {
+      console.warn('[StripeWebhookService] Falha não-fatal ao logar pagamento:', payErr);
     }
   }
 
@@ -599,7 +556,7 @@ export class StripeWebhookService {
     try {
       await this.syncInvoiceToFirestore(invoice, 'em_aberto');
     } catch (err) {
-      console.error('[StripeWebhookHandler] Erro em handleInvoiceCreated:', err);
+      console.warn('[StripeWebhookService] Erro não-fatal em handleInvoiceCreated:', err);
     }
   }
 
@@ -607,179 +564,167 @@ export class StripeWebhookService {
     try {
       await this.syncInvoiceToFirestore(invoice, 'em_aberto');
     } catch (err) {
-      console.error('[StripeWebhookHandler] Erro em handleInvoiceFinalized:', err);
+      console.warn('[StripeWebhookService] Erro não-fatal em handleInvoiceFinalized:', err);
     }
   }
 
   private static async handleInvoicePaid(invoice: any, eventCreated: number): Promise<void> {
+    const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+    const initialRestId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
+    const customerEmail = invoice.customer_email || undefined;
+    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, invoice.subscription, customerEmail);
+
+    console.log(`[StripeWebhookService] [invoice.paid] Invoice ID: ${invoice.id}, Restaurant: ${restaurantId}`);
+
+    if (!restaurantId) {
+      throw new Error(`[invoice.paid] Falha crítica: Não foi possível determinar o restaurante da fatura ${invoice.id}.`);
+    }
+
+    const amountPaid = (invoice.amount_paid || 0) / 100;
+    const now = new Date().toISOString();
+
+    // GRAVAÇÃO CRÍTICA 1: Sincronizar Fatura como 'pago'
+    let invoiceId = invoice.id;
     try {
-      const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
-      const initialRestId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
-      const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId);
+      const invSnap = await adminDb.collection('invoices').where('stripeInvoiceId', '==', invoice.id).limit(1).get();
+      if (!invSnap.empty) {
+        const invDoc = invSnap.docs[0];
+        invoiceId = invDoc.id;
+        await invDoc.ref.set({
+          status: 'pago',
+          paidAt: now,
+          hostedInvoiceUrl: invoice.hosted_invoice_url || '',
+          invoicePdf: invoice.invoice_pdf || '',
+          stripeStatus: invoice.status || 'paid',
+          updatedAt: now
+        }, { merge: true });
+      } else {
+        const number = invoice.number || `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const createdMs = typeof invoice.created === 'number' ? invoice.created * 1000 : Date.now();
+        const dueDate = typeof invoice.due_date === 'number' 
+          ? new Date(invoice.due_date * 1000).toISOString().split('T')[0] 
+          : new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      console.log(`[StripeWebhookHandler] [invoice.paid] Invoice ID: ${invoice.id}, Restaurant: ${restaurantId}`);
-
-      let paidInvoice: Invoice | null = null;
-      try {
-        paidInvoice = await this.syncInvoiceToFirestore(invoice, 'pago');
-      } catch (invErr) {
-        console.error('[StripeWebhookHandler] Erro ao sincronizar fatura paga:', invErr);
+        const newInvoiceData = {
+          id: invoice.id,
+          number,
+          restaurantId,
+          restaurantName,
+          planId: invoice.metadata?.planId || 'gourmet',
+          planName: getPlanName(invoice.metadata?.planId || 'gourmet'),
+          amount: amountPaid,
+          discounts: 0,
+          additions: 0,
+          finalAmount: amountPaid,
+          competence: formatCompetence(createdMs),
+          issueDate: new Date(createdMs).toISOString(),
+          dueDate,
+          status: 'pago',
+          paidAt: now,
+          paymentMethod: 'stripe',
+          internalNotes: `Fatura gerada e paga pelo Stripe (${invoice.id})`,
+          stripeInvoiceId: invoice.id,
+          stripeStatus: invoice.status || 'paid',
+          pixQrCode: invoice.hosted_invoice_url || '',
+          createdAt: now,
+          updatedAt: now
+        };
+        await adminDb.collection('invoices').doc(invoice.id).set(newInvoiceData, { merge: true });
       }
+      console.log(`[StripeWebhookService] [SUCCESS] Fatura ${invoice.id} sincronizada como 'pago' no Firestore.`);
+    } catch (invErr: any) {
+      console.error(`[StripeWebhookService] Erro crítico ao atualizar fatura no Firestore:`, invErr);
+      throw new Error(`Erro de atualização da fatura no Firestore: ${invErr.message}`);
+    }
 
-      if (restaurantId) {
-        const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
-        if (!isStale) {
-          const amountPaid = (invoice.amount_paid || 0) / 100;
-          const now = new Date().toISOString();
-
-          // Reativa restaurante se estava suspenso/bloqueado/vencido e atualiza status para ativo
-          const nextDue = new Date();
-          nextDue.setDate(nextDue.getDate() + 30);
-
-          try {
-            await updateDoc(doc(db, 'restaurants', restaurantId), {
-              status: 'active',
-              subscriptionStatus: 'active',
-              nextDueDate: nextDue.toISOString().split('T')[0],
-              renewalDate: nextDue.toISOString(),
-              lastStripeEventCreated: eventCreated,
-              updatedAt: now
-            });
-          } catch (upErr) {
-            console.warn('[StripeWebhookHandler] Erro ao atualizar status do restaurante para ativo:', upErr);
-          }
-
-          try {
-            await FinancialNotificationService.createNotification({
-              restaurantId,
-              restaurantName,
-              type: 'payment_approved',
-              title: 'Pagamento Confirmado',
-              message: `O pagamento da fatura #${invoice.number || invoice.id} no valor de R$ ${amountPaid.toFixed(2)} foi aprovado com sucesso.`
-            });
-          } catch (notifErr) {
-            console.error('[StripeWebhookHandler] Erro ao criar notificação de pagamento:', notifErr);
-          }
-        }
-
-        const amountPaid = (invoice.amount_paid || 0) / 100;
-        const now = new Date().toISOString();
-
-        // Cria recibo automático com idempotência interna
-        try {
-          await ReceiptService.createReceipt({
-            invoiceId: paidInvoice?.id || invoice.id,
-            restaurantId,
-            restaurantName,
-            planName: paidInvoice?.planName || 'Plano Gourmet',
-            amount: amountPaid,
-            paymentMethod: 'stripe',
-            paidAt: now,
-            notes: `Recibo de pagamento da Fatura Stripe #${invoice.number || invoice.id}`,
-            performedBy: 'stripe_webhook'
-          });
-        } catch (recErr) {
-          console.error('[StripeWebhookHandler] Erro ao emitir recibo automático para fatura paga:', recErr);
-        }
-
-        try {
-          await PaymentService.logPaymentEvent({
-            restaurantId,
-            restaurantName,
-            invoiceId: paidInvoice?.id || invoice.id,
-            action: 'invoice_paid',
-            description: `Fatura Stripe #${invoice.number || invoice.id} Paga com Sucesso (R$ ${amountPaid.toFixed(2)})`,
-            performedBy: 'stripe_webhook',
-            amount: amountPaid
-          });
-        } catch (payErr) {
-          console.error('[StripeWebhookHandler] Erro ao registrar log de pagamento para fatura paga:', payErr);
-        }
-      }
+    // GRAVAÇÃO CRÍTICA 2: Reativar Restaurante se Estava Suspenso/Vencido e Atualizar Próxima Vencimento
+    const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
+    if (!isStale) {
+      const nextDue = new Date();
+      nextDue.setDate(nextDue.getDate() + 30);
 
       try {
-        await StripeAuditService.logAuditEvent({
-          restaurantId: restaurantId || 'desconhecido',
-          eventType: 'stripe_renewal',
-          description: `Fatura Paga no Stripe - R$ ${((invoice.amount_paid || 0) / 100).toFixed(2)}`,
-          amount: (invoice.amount_paid || 0) / 100,
-          metadata: { invoiceId: invoice.id, paymentIntent: invoice.payment_intent }
-        });
-      } catch (auditErr) {
-        console.error('[StripeWebhookHandler] Erro ao registrar auditoria em invoice.paid:', auditErr);
+        await adminDb.collection('restaurants').doc(restaurantId).set({
+          status: 'active',
+          subscriptionStatus: 'active',
+          nextDueDate: nextDue.toISOString().split('T')[0],
+          renewalDate: nextDue.toISOString(),
+          lastStripeEventCreated: eventCreated,
+          updatedAt: now
+        }, { merge: true });
+
+        console.log(`[StripeWebhookService] [SUCCESS] Restaurante ${restaurantId} ativado com sucesso após invoice.paid.`);
+      } catch (restErr: any) {
+        console.error(`[StripeWebhookService] Erro ao atualizar status do restaurante ${restaurantId}:`, restErr);
+        throw new Error(`Erro ao atualizar status do restaurante após pagamento da fatura: ${restErr.message}`);
       }
-    } catch (err) {
-      console.error('[StripeWebhookHandler] Erro geral em handleInvoicePaid:', err);
+    }
+
+    // Operações secundárias
+    try {
+      await adminDb.collection('receipts').doc(`rec_${invoice.id}`).set({
+        id: `rec_${invoice.id}`,
+        invoiceId,
+        restaurantId,
+        restaurantName,
+        planName: getPlanName(invoice.metadata?.planId || 'gourmet'),
+        amount: amountPaid,
+        paymentMethod: 'stripe',
+        paidAt: now,
+        notes: `Recibo de pagamento da Fatura Stripe #${invoice.number || invoice.id}`,
+        performedBy: 'stripe_webhook',
+        createdAt: now
+      }, { merge: true });
+    } catch (recErr) {
+      console.warn('[StripeWebhookService] Falha ao gerar recibo no Firestore:', recErr);
+    }
+
+    try {
+      await adminDb.collection('financial_notifications').add({
+        restaurantId,
+        restaurantName,
+        type: 'payment_approved',
+        title: 'Pagamento Confirmado',
+        message: `O pagamento da fatura #${invoice.number || invoice.id} no valor de R$ ${amountPaid.toFixed(2)} foi aprovado com sucesso.`,
+        read: false,
+        createdAt: now
+      });
+    } catch (notifErr) {
+      console.warn('[StripeWebhookService] Falha ao criar notificação de pagamento:', notifErr);
     }
   }
 
   private static async handleInvoicePaymentFailed(invoice: any, eventCreated: number): Promise<void> {
-    try {
-      const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
-      const initialRestId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
-      const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId);
+    const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+    const initialRestId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
+    const customerEmail = invoice.customer_email || undefined;
+    const { restaurantId } = await this.findRestaurantId(initialRestId, customerId, invoice.subscription, customerEmail);
 
-      console.log(`[StripeWebhookHandler] [invoice.payment_failed] Invoice ID: ${invoice.id}, Restaurant: ${restaurantId}`);
+    console.log(`[StripeWebhookService] [invoice.payment_failed] Invoice ID: ${invoice.id}, Restaurant: ${restaurantId}`);
 
-      let failedInvoice: Invoice | null = null;
-      try {
-        failedInvoice = await this.syncInvoiceToFirestore(invoice, 'vencido');
-      } catch (invErr) {
-        console.error('[StripeWebhookHandler] Erro ao sincronizar fatura com falha de pagamento:', invErr);
-      }
-
-      if (restaurantId) {
-        const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
-        if (!isStale) {
-          const now = new Date().toISOString();
-          try {
-            await updateDoc(doc(db, 'restaurants', restaurantId), {
-              subscriptionStatus: 'past_due',
-              lastStripeEventCreated: eventCreated,
-              updatedAt: now
-            });
-          } catch (upErr) {
-            console.warn('[StripeWebhookHandler] Erro ao atualizar status past_due no restaurante:', upErr);
-          }
-        }
-
+    if (restaurantId) {
+      const isStale = await this.checkOutOfOrder(restaurantId, eventCreated);
+      if (!isStale) {
+        const now = new Date().toISOString();
         try {
-          await PaymentService.logPaymentEvent({
-            restaurantId,
-            restaurantName,
-            invoiceId: failedInvoice?.id || invoice.id,
-            action: 'stripe_payment_failed',
-            description: `Falha na cobrança da fatura no Stripe. Status alterado para PAST_DUE.`,
-            performedBy: 'stripe_webhook',
-            amount: (invoice.amount_due || 0) / 100
-          });
-        } catch (payErr) {
-          console.error('[StripeWebhookHandler] Erro ao logar evento de falha de pagamento:', payErr);
+          await adminDb.collection('restaurants').doc(restaurantId).set({
+            subscriptionStatus: 'past_due',
+            lastStripeEventCreated: eventCreated,
+            updatedAt: now
+          }, { merge: true });
+        } catch (upErr) {
+          console.warn('[StripeWebhookService] Erro ao atualizar status past_due no restaurante:', upErr);
         }
       }
-
-      try {
-        await StripeAuditService.logAuditEvent({
-          restaurantId: restaurantId || 'desconhecido',
-          eventType: 'stripe_payment_failed',
-          description: `Falha na cobrança da fatura no Stripe (Invoice ID: ${invoice.id})`,
-          amount: (invoice.amount_due || 0) / 100,
-          metadata: { invoiceId: invoice.id }
-        });
-      } catch (auditErr) {
-        console.error('[StripeWebhookHandler] Erro ao registrar auditoria em invoice.payment_failed:', auditErr);
-      }
-    } catch (err) {
-      console.error('[StripeWebhookHandler] Erro geral em handleInvoicePaymentFailed:', err);
     }
   }
 
-  private static async syncInvoiceToFirestore(invoice: any, status: 'em_aberto' | 'pago' | 'vencido'): Promise<Invoice | null> {
+  private static async syncInvoiceToFirestore(invoice: any, status: 'em_aberto' | 'pago' | 'vencido'): Promise<void> {
     const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
     const initialRestId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
-    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId);
+    const { restaurantId, restaurantName } = await this.findRestaurantId(initialRestId, customerId, invoice.subscription);
 
-    if (!restaurantId) return null;
+    if (!restaurantId) return;
 
     const amount = (invoice.amount_due || invoice.total || invoice.amount_paid || 0) / 100;
     const createdMs = typeof invoice.created === 'number' ? invoice.created * 1000 : Date.now();
@@ -788,64 +733,30 @@ export class StripeWebhookService {
       ? new Date(invoice.due_date * 1000).toISOString().split('T')[0] 
       : new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    const stripeInvoiceId = invoice.id;
+    const now = new Date().toISOString();
 
-    // Busca fatura existente por stripeInvoiceId
-    try {
-      const q = query(collection(db, 'invoices'), where('stripeInvoiceId', '==', stripeInvoiceId));
-      const snap = await getDocs(q);
-
-      const now = new Date().toISOString();
-
-      if (!snap.empty) {
-        const existingDoc = snap.docs[0];
-        const existingData = existingDoc.data() as Invoice;
-
-        await updateDoc(existingDoc.ref, {
-          status,
-          paidAt: status === 'pago' ? now : existingData.paidAt,
-          hostedInvoiceUrl: invoice.hosted_invoice_url || existingData.pixQrCode || '',
-          invoicePdf: invoice.invoice_pdf || '',
-          stripeStatus: invoice.status || status,
-          updatedAt: now
-        });
-
-        return { ...existingData, id: existingDoc.id, status };
-      } else {
-        const id = doc(collection(db, 'invoices')).id;
-        const number = invoice.number || `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-        const newInvoice: Invoice = {
-          id,
-          number,
-          restaurantId,
-          restaurantName,
-          planId: invoice.metadata?.planId || 'gourmet',
-          planName: getPlanName(invoice.metadata?.planId || 'gourmet'),
-          amount,
-          discounts: 0,
-          additions: 0,
-          finalAmount: amount,
-          competence,
-          issueDate: new Date(createdMs).toISOString(),
-          dueDate,
-          status,
-          paidAt: status === 'pago' ? now : undefined,
-          paymentMethod: 'stripe',
-          internalNotes: `Fatura gerada pelo Stripe (${stripeInvoiceId})`,
-          stripeInvoiceId,
-          stripeStatus: invoice.status || status,
-          pixQrCode: invoice.hosted_invoice_url || '',
-          createdAt: now,
-          updatedAt: now
-        };
-
-        await setDoc(doc(db, 'invoices', id), newInvoice);
-        return newInvoice;
-      }
-    } catch (err) {
-      console.error('[StripeWebhookService] Erro ao sincronizar fatura com Firestore:', err);
-      return null;
-    }
+    await adminDb.collection('invoices').doc(invoice.id).set({
+      id: invoice.id,
+      number: invoice.number || `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      restaurantId,
+      restaurantName,
+      planId: invoice.metadata?.planId || 'gourmet',
+      planName: getPlanName(invoice.metadata?.planId || 'gourmet'),
+      amount,
+      discounts: 0,
+      additions: 0,
+      finalAmount: amount,
+      competence,
+      issueDate: new Date(createdMs).toISOString(),
+      dueDate,
+      status,
+      paidAt: status === 'pago' ? now : null,
+      paymentMethod: 'stripe',
+      internalNotes: `Fatura gerada pelo Stripe (${invoice.id})`,
+      stripeInvoiceId: invoice.id,
+      stripeStatus: invoice.status || status,
+      pixQrCode: invoice.hosted_invoice_url || '',
+      updatedAt: now
+    }, { merge: true });
   }
 }

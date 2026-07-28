@@ -62,6 +62,13 @@ export class StripeCheckoutService {
         restaurantId: params.restaurantId,
         planId: params.planId,
         ...params.metadata
+      },
+      subscription_data: {
+        metadata: {
+          restaurantId: params.restaurantId,
+          planId: params.planId,
+          ...params.metadata
+        }
       }
     };
 

@@ -60,12 +60,12 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     const result = await StripeWebhookService.handleWebhookEvent(event);
     return res.status(200).json(result);
   } catch (error: any) {
-    console.error('[Webhook Endpoint] Erro genérico no processamento do webhook Stripe:', error);
-    return res.status(200).json({ 
-      received: true, 
+    console.error('[Webhook Endpoint] ERRO CRÍTICO no processamento do webhook Stripe:', error);
+    return res.status(500).json({ 
+      received: false, 
       handled: false, 
-      message: 'Evento recebido pelo servidor, erro de processamento registrado nos logs.',
-      error: error.message || 'Erro interno.'
+      message: 'Erro interno ao processar e gravar evento do webhook.',
+      error: error.message || 'Erro de processamento no servidor.'
     });
   }
 });
@@ -372,32 +372,37 @@ Escreva de forma atraente, profissional e objetiva em Português do Brasil.`;
 
 // Setup Vite Dev Server / Static files
 async function start() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.webmanifest')) {
-          res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
-          res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
-        } else if (filePath.endsWith('sw.js')) {
-          res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+  try {
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.webmanifest')) {
+            res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+          } else if (filePath.endsWith('sw.js')) {
+            res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+          }
         }
-      }
-    }));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+      }));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Fatal error starting server:', err);
+    process.exit(1);
+  }
 }
 
 start();
