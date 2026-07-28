@@ -82,29 +82,29 @@ export const MasterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Fetch restaurants
       const restSnap = await getDocs(collection(db, 'restaurants'));
       const restList: Restaurant[] = restSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
+        ...docSnap.data(),
+        id: docSnap.id
       } as Restaurant));
 
       // Fetch users
       const usersSnap = await getDocs(collection(db, 'users'));
       const usersList: UserProfile[] = usersSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
+        ...docSnap.data(),
+        id: docSnap.id
       } as UserProfile));
 
       // Fetch master plans
       const plansSnap = await getDocs(query(collection(db, 'master_plans'), orderBy('order', 'asc')));
       const plansList: MasterPlan[] = plansSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
+        ...docSnap.data(),
+        id: docSnap.id
       } as MasterPlan));
 
       // Fetch master features
       const featuresSnap = await getDocs(collection(db, 'master_features'));
       const featuresList: MasterFeature[] = featuresSnap.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
+        ...docSnap.data(),
+        id: docSnap.id
       } as MasterFeature));
 
       // Enrich restaurants

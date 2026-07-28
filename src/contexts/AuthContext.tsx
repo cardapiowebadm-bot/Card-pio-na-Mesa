@@ -59,7 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const restRef = doc(db, 'restaurants', pData.restaurantId);
               const restSnap = await getDoc(restRef);
               if (restSnap.exists()) {
-                setRestaurant({ ...(restSnap.data() as Restaurant), id: pData.restaurantId });
+                setRestaurant({ ...(restSnap.data() as Restaurant), id: restSnap.id });
               }
             }
           } else {
@@ -100,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const restRef = doc(db, 'restaurants', pData.restaurantId);
           const restSnap = await getDoc(restRef);
           if (restSnap.exists()) {
-            setRestaurant({ ...(restSnap.data() as Restaurant), id: pData.restaurantId });
+            setRestaurant({ ...(restSnap.data() as Restaurant), id: restSnap.id });
           }
         }
       } else {

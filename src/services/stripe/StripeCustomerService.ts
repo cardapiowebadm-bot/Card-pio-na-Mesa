@@ -41,14 +41,16 @@ export class StripeCustomerService {
       };
     }
 
+    const cleanRestaurantId = String(params.restaurantId || '').trim();
+
     const customer = await stripe.customers.create({
       name: params.name,
       email: params.email,
       phone: params.phone,
       metadata: {
-        restaurantId: params.restaurantId,
-        documentNumber: params.documentNumber || '',
-        ...params.metadata
+        ...(params.metadata || {}),
+        restaurantId: cleanRestaurantId,
+        documentNumber: params.documentNumber || ''
       }
     });
 

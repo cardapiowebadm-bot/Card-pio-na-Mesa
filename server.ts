@@ -90,12 +90,13 @@ app.get('/api/stripe/config', (req, res) => {
 app.post('/api/stripe/customer', async (req, res) => {
   try {
     const { restaurantId, name, email, phone, documentNumber, metadata } = req.body;
-    if (!restaurantId || !email) {
+    const cleanRestaurantId = String(restaurantId || '').trim();
+    if (!cleanRestaurantId || !email) {
       return res.status(400).json({ error: 'restaurantId e email são obrigatórios.' });
     }
 
     const customer = await StripeCustomerService.createCustomer({
-      restaurantId,
+      restaurantId: cleanRestaurantId,
       name: name || 'Restaurante',
       email,
       phone,
@@ -113,7 +114,8 @@ app.post('/api/stripe/customer', async (req, res) => {
 app.post('/api/stripe/checkout', async (req, res) => {
   try {
     const { restaurantId, planId, priceId, customerId, customerEmail, successUrl, cancelUrl, metadata } = req.body;
-    if (!restaurantId || !planId) {
+    const cleanRestaurantId = String(restaurantId || '').trim();
+    if (!cleanRestaurantId || !planId) {
       return res.status(400).json({ error: 'restaurantId e planId são obrigatórios.' });
     }
 
@@ -122,7 +124,7 @@ app.post('/api/stripe/checkout', async (req, res) => {
     const finalCancelUrl = cancelUrl || `${appUrl}/admin/financial?status=cancelled`;
 
     const session = await StripeCheckoutService.createCheckoutSession({
-      restaurantId,
+      restaurantId: cleanRestaurantId,
       planId,
       priceId,
       customerId,

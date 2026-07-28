@@ -47,7 +47,8 @@ const RestaurantBillingContext = createContext<RestaurantBillingContextData>({} 
 
 export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { restaurant, userProfile } = useAuth();
-  const restaurantId = restaurant?.id || userProfile?.restaurantId;
+  const rawRestaurantId = restaurant?.id || userProfile?.restaurantId || '';
+  const restaurantId = rawRestaurantId.trim();
 
   const [loading, setLoading] = useState(true);
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);

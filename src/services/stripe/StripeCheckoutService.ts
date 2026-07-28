@@ -47,6 +47,8 @@ export class StripeCheckoutService {
       };
     }
 
+    const cleanRestaurantId = String(params.restaurantId || '').trim();
+
     const sessionParams: any = {
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -59,15 +61,15 @@ export class StripeCheckoutService {
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
       metadata: {
-        restaurantId: params.restaurantId,
-        planId: params.planId,
-        ...params.metadata
+        ...(params.metadata || {}),
+        restaurantId: cleanRestaurantId,
+        planId: params.planId
       },
       subscription_data: {
         metadata: {
-          restaurantId: params.restaurantId,
-          planId: params.planId,
-          ...params.metadata
+          ...(params.metadata || {}),
+          restaurantId: cleanRestaurantId,
+          planId: params.planId
         }
       }
     };

@@ -194,19 +194,28 @@ export class StripeWebhookService {
     subscriptionId?: string,
     customerEmail?: string
   ): Promise<{ restaurantId: string | null; restaurantName: string }> {
-    // 1. Busca Direta por metadata restaurantId
-    if (metadataRestId && metadataRestId !== 'desconhecido') {
+    const cleanMetadataRestId = metadataRestId ? String(metadataRestId).trim() : '';
+
+    // 1. Busca Direta por metadata restaurantId (exatamente doc(cleanMetadataRestId) em 'restaurants')
+    if (cleanMetadataRestId && cleanMetadataRestId !== 'desconhecido') {
       try {
-        const restDoc = await adminDb.collection('restaurants').doc(metadataRestId).get();
+        const restDoc = await adminDb.collection('restaurants').doc(cleanMetadataRestId).get();
         if (restDoc.exists) {
           const name = restDoc.data()?.name || 'Restaurante';
-          console.log(`[StripeWebhookService] Restaurante localizado via metadata.restaurantId: ${metadataRestId} ("${name}")`);
-          return { restaurantId: metadataRestId, restaurantName: name };
+          console.log(`[StripeWebhookService] Restaurante localizado via metadata.restaurantId: ${cleanMetadataRestId} ("${name}")`);
+          return { restaurantId: cleanMetadataRestId, restaurantName: name };
         } else {
-          console.warn(`[StripeWebhookService] Metadata restaurantId ${metadataRestId} fornecido, mas documento não existe no Firestore.`);
+          console.warn(`[StripeWebhookService] Metadata restaurantId ${cleanMetadataRestId} fornecido, mas documento não existe em restaurants/${cleanMetadataRestId}. Verificando por campo id...`);
+          const snapField = await adminDb.collection('restaurants').where('id', '==', cleanMetadataRestId).limit(1).get();
+          if (!snapField.empty) {
+            const docSnap = snapField.docs[0];
+            const name = docSnap.data().name || 'Restaurante';
+            console.log(`[StripeWebhookService] Restaurante localizado via campo 'id' ${cleanMetadataRestId}: ID Real Firestore Doc=${docSnap.id} ("${name}")`);
+            return { restaurantId: docSnap.id, restaurantName: name };
+          }
         }
       } catch (err) {
-        console.warn(`[StripeWebhookService] Erro ao buscar documento em restaurants/${metadataRestId}:`, err);
+        console.warn(`[StripeWebhookService] Erro ao buscar documento em restaurants/${cleanMetadataRestId}:`, err);
       }
     }
 
