@@ -3,7 +3,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import { adminDb } from './src/services/firebaseAdmin';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { adminDb, getAdminApp } from './src/services/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { 
   StripeService, 
@@ -585,6 +586,139 @@ app.post('/api/orders', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Erro interno ao processar e salvar pedido no servidor.',
+      details: error.message || 'Erro desconhecido.'
+    });
+  }
+});
+
+// --- ENDPOINT PARA CADASTRO DE GARÇONS (SERVER-SIDE VIA FIREBASE ADMIN) ---
+app.post('/api/waiters', async (req, res) => {
+  try {
+    const rawEmailInput = String(req.body.email || req.body.login || '').trim().toLowerCase();
+    const rawLoginInput = String(req.body.login || '').trim().toLowerCase();
+
+    let email = rawEmailInput;
+    if (!email && rawLoginInput) {
+      email = rawLoginInput.includes('@') ? rawLoginInput : `${rawLoginInput}@temp.cardapionamesa.com`;
+    } else if (email && !email.includes('@')) {
+      email = `${email}@temp.cardapionamesa.com`;
+    }
+
+    const name = String(req.body.name || req.body.nome || '').trim();
+    const phone = String(req.body.phone || req.body.telefone || '').trim();
+    const password = String(req.body.password || req.body.senha || req.body.passwordTemp || '').trim();
+    const restaurantId = String(req.body.restaurantId || '').trim();
+    const rawLogin = rawLoginInput || (email.split('@')[0] || '').trim();
+
+    // 1. Validações de campos obrigatórios
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Nome do garçom é obrigatório.' });
+    }
+    if (!phone) {
+      return res.status(400).json({ success: false, error: 'Telefone do garçom é obrigatório.' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      return res.status(400).json({ success: false, error: 'Informe um e-mail válido.' });
+    }
+
+    // Validação de senha: min 8 caracteres, 1 letra, 1 número
+    if (!password || password.length < 8) {
+      return res.status(400).json({ success: false, error: 'A senha deve ter pelo menos 8 caracteres.' });
+    }
+    if (!/[a-zA-Z]/.test(password)) {
+      return res.status(400).json({ success: false, error: 'A senha deve conter pelo menos uma letra.' });
+    }
+    if (!/[0-9]/.test(password)) {
+      return res.status(400).json({ success: false, error: 'A senha deve conter pelo menos um número.' });
+    }
+
+    if (!restaurantId) {
+      return res.status(400).json({ success: false, error: 'ID do restaurante é obrigatório.' });
+    }
+
+    const adminAuth = getAdminAuth(getAdminApp());
+
+    // 2. Criar o usuário no Firebase Auth usando Firebase Admin
+    let userRecord;
+    try {
+      userRecord = await adminAuth.createUser({
+        email,
+        password,
+        displayName: name,
+      });
+    } catch (authErr: any) {
+      if (
+        authErr.code === 'auth/email-already-in-use' ||
+        authErr.message?.includes('already in use') ||
+        authErr.message?.includes('already exists')
+      ) {
+        return res.status(409).json({ success: false, error: 'Este e-mail já está cadastrado.' });
+      }
+      if (
+        authErr.code === 'auth/invalid-email' ||
+        authErr.message?.includes('invalid email')
+      ) {
+        return res.status(400).json({ success: false, error: 'Informe um e-mail válido.' });
+      }
+      console.error('[POST /api/waiters] Erro ao criar usuário no Auth:', authErr);
+      return res.status(400).json({ success: false, error: authErr.message || 'Erro ao criar usuário do garçom.' });
+    }
+
+    const uid = userRecord.uid;
+    const nowIso = new Date().toISOString();
+
+    // 3. Criar o documento na coleção 'waiters' (NÃO salvar a senha no Firestore)
+    const waiterRef = adminDb.collection('waiters').doc();
+    const waiterDocData = {
+      id: waiterRef.id,
+      restaurantId,
+      name,
+      nome: name,
+      phone,
+      telefone: phone,
+      login: rawLogin,
+      email,
+      status: 'active',
+      isFirstAccess: true,
+      userId: uid,
+      uid,
+      role: 'waiter',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    await waiterRef.set(waiterDocData);
+
+    // 4. Criar o documento correspondente na coleção 'users' (NÃO salvar a senha no Firestore)
+    const userDocData = {
+      id: uid,
+      uid,
+      name,
+      nome: name,
+      email,
+      phone,
+      telefone: phone,
+      role: 'waiter',
+      restaurantId,
+      waiterDocId: waiterRef.id,
+      status: 'active',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    await adminDb.collection('users').doc(uid).set(userDocData, { merge: true });
+
+    return res.status(201).json({
+      success: true,
+      uid,
+      waiterId: waiterRef.id,
+      message: 'Garçom cadastrado com sucesso!'
+    });
+  } catch (error: any) {
+    console.error('[POST /api/waiters] ERRO CRÍTICO ao cadastrar garçom:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno ao cadastrar garçom no servidor.',
       details: error.message || 'Erro desconhecido.'
     });
   }

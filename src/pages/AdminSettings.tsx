@@ -60,6 +60,7 @@ export default function AdminSettings() {
   const [waiterPhone, setWaiterPhone] = useState('');
   const [waiterLogin, setWaiterLogin] = useState('');
   const [waiterPasswordTemp, setWaiterPasswordTemp] = useState('');
+  const [waiterSaving, setWaiterSaving] = useState(false);
 
   const fetchWaiters = async () => {
     if (!userProfile?.restaurantId) return;
@@ -91,176 +92,188 @@ export default function AdminSettings() {
 
   const handleSaveWaiter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!waiterName.trim() || !waiterPhone.trim() || !waiterLogin.trim() || !waiterPasswordTemp.trim()) {
-      toast.error('Preencha todos os campos do garçom');
+
+    const nameTrimmed = waiterName.trim();
+    const phoneTrimmed = waiterPhone.trim();
+    const rawLoginOrEmail = waiterLogin.trim().toLowerCase();
+    const passwordTrimmed = waiterPasswordTemp.trim();
+
+    // 1. Validar nome e telefone
+    if (!nameTrimmed) {
+      toast.error('Nome do garçom é obrigatório.');
+      return;
+    }
+
+    if (!phoneTrimmed) {
+      toast.error('Telefone do garçom é obrigatório.');
       return;
     }
 
     if (!userProfile?.restaurantId) return;
 
-    try {
-      // Initialize secondary auth safely
-      const secondaryApp = getApps().find(app => app.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
-      const secondaryAuth = getAuth(secondaryApp);
-      await setPersistence(secondaryAuth, inMemoryPersistence);
+    if (!editingWaiter) {
+      // 2. Validar e-mail / login antes do envio
+      if (!rawLoginOrEmail) {
+        toast.error('Informe um e-mail válido.');
+        return;
+      }
 
-      const normalizedLogin = waiterLogin.trim().toLowerCase();
+      const email = rawLoginOrEmail.includes('@')
+        ? rawLoginOrEmail
+        : `${rawLoginOrEmail}@temp.cardapionamesa.com`;
 
-      if (!editingWaiter) {
-         // Check plan limit for waiters
-         const limitCheck = canAddWaiter(waiters.length);
-         if (!limitCheck.allowed) {
-           toast.error(`Limite de garçons atingido (${limitCheck.max} garçons no plano ${limitCheck.planName}).`);
-           openUpgradeModal(
-             'Limite de Garçons Atingido',
-             `Seu plano atual (${limitCheck.planName}) permite cadastrar no máximo ${limitCheck.max} garçons. Faça upgrade do seu plano para cadastrar novos garçons.`
-           );
-           return;
-         }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        toast.error('Informe um e-mail válido.');
+        return;
+      }
 
-         // Check for login duplicate in restaurant
-         const dupQuery = query(
-           collection(db, 'waiters'),
-           where('restaurantId', '==', userProfile.restaurantId),
-           where('login', '==', normalizedLogin)
-         );
-         const dupSnap = await getDocs(dupQuery);
-         if (!dupSnap.empty) {
-           toast.error('Este login já está em uso por outro garçom.');
-           return;
-         }
+      // 3. Validar senha no frontend: min 8 caracteres, 1 letra, 1 número
+      if (!passwordTrimmed || passwordTrimmed.length < 8) {
+        toast.error('A senha deve ter pelo menos 8 caracteres.');
+        return;
+      }
 
-         const tempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
-         
-         // Create user in secondary Auth
-         const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, tempEmail, waiterPasswordTemp.trim());
-         const authUid = authUserCred.user.uid;
+      if (!/[a-zA-Z]/.test(passwordTrimmed)) {
+        toast.error('A senha deve conter pelo menos uma letra.');
+        return;
+      }
 
-         const waiterDocRef = await addDoc(collection(db, 'waiters'), {
-           restaurantId: userProfile.restaurantId,
-           name: waiterName.trim(),
-           phone: waiterPhone.trim(),
-           login: normalizedLogin,
-           passwordTemp: waiterPasswordTemp.trim(),
-           status: 'active',
-           isFirstAccess: true,
-           userId: authUid,
-           createdAt: new Date().toISOString()
-         });
+      if (!/[0-9]/.test(passwordTrimmed)) {
+        toast.error('A senha deve conter pelo menos um número.');
+        return;
+      }
 
-         // Create profile in users collection
-         await setDoc(doc(db, 'users', authUid), {
-           id: authUid,
-           name: waiterName.trim(),
-           email: tempEmail,
-           role: 'waiter',
-           restaurantId: userProfile.restaurantId,
-           waiterDocId: waiterDocRef.id,
-           createdAt: new Date().toISOString()
-         });
+      setWaiterSaving(true);
 
-         // Sign out secondary auth so it doesn't hold state
-         await secondaryAuth.signOut();
+      try {
+        // Check plan limit for waiters
+        const limitCheck = canAddWaiter(waiters.length);
+        if (!limitCheck.allowed) {
+          toast.error(`Limite de garçons atingido (${limitCheck.max} garçons no plano ${limitCheck.planName}).`);
+          openUpgradeModal(
+            'Limite de Garçons Atingido',
+            `Seu plano atual (${limitCheck.planName}) permite cadastrar no máximo ${limitCheck.max} garçons. Faça upgrade do seu plano para cadastrar novos garçons.`
+          );
+          setWaiterSaving(false);
+          return;
+        }
 
-         toast.success('Garçom cadastrado com sucesso!');
-       } else {
-         const waiterRef = doc(db, 'waiters', editingWaiter.id);
-         const updateData: any = {
-           name: waiterName.trim(),
-           phone: waiterPhone.trim()
-         };
+        // Base URL resolution for API calls
+        const rawBase = import.meta.env.VITE_API_BASE_URL;
+        let API_BASE_URL = rawBase ? String(rawBase).trim().replace(/\/$/, '') : '';
+        if (!API_BASE_URL && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+          API_BASE_URL = window.location.origin;
+        }
 
-         if (editingWaiter.isFirstAccess) {
-           // Check for login duplicate if login was changed
-           const oldNormalizedLogin = (editingWaiter.login || '').trim().toLowerCase();
-           if (oldNormalizedLogin !== normalizedLogin) {
-             const dupQuery = query(
-               collection(db, 'waiters'),
-               where('restaurantId', '==', userProfile.restaurantId),
-               where('login', '==', normalizedLogin)
-             );
-             const dupSnap = await getDocs(dupQuery);
-             if (!dupSnap.empty) {
-               toast.error('Este login já está em uso por outro garçom.');
-               return;
-             }
-           }
-           updateData.login = normalizedLogin;
-           updateData.passwordTemp = waiterPasswordTemp.trim();
+        if (!API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname.includes('netlify.app') && !rawBase)) {
+          toast.error('Configuração ausente: A variável VITE_API_BASE_URL não está definida no ambiente frontend.');
+          setWaiterSaving(false);
+          return;
+        }
 
-           // Also update secondary auth credentials
-           try {
-             const oldTempEmail = `${oldNormalizedLogin}@temp.cardapionamesa.com`;
-             const oldPassword = editingWaiter.passwordTemp;
-             const newTempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
-             const newPassword = waiterPasswordTemp.trim();
+        // Call server-side endpoint for waiter creation via Firebase Admin
+        const response = await fetch(`${API_BASE_URL}/api/waiters`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nameTrimmed,
+            nome: nameTrimmed,
+            phone: phoneTrimmed,
+            telefone: phoneTrimmed,
+            email,
+            login: rawLoginOrEmail,
+            password: passwordTrimmed,
+            senha: passwordTrimmed,
+            passwordTemp: passwordTrimmed,
+            restaurantId: userProfile.restaurantId
+          })
+        });
 
-             const cred = await signInWithEmailAndPassword(secondaryAuth, oldTempEmail, oldPassword);
-             const user = cred.user;
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('[POST /api/waiters Error] Resposta do servidor não é JSON:', {
+            status: response.status,
+            statusText: response.statusText,
+            responseText: text
+          });
+          throw new Error(`Erro do servidor (${response.status}).`);
+        }
 
-             if (oldTempEmail !== newTempEmail) {
-               await updateEmail(user, newTempEmail);
-             }
-             if (oldPassword !== newPassword) {
-               await updatePassword(user, newPassword);
-             }
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          toast.error(data.error || data.message || 'Erro ao cadastrar garçom.');
+          setWaiterSaving(false);
+          return;
+        }
 
-             // Update user profile in users collection
-             await updateDoc(doc(db, 'users', user.uid), {
-               email: newTempEmail,
-               name: waiterName.trim()
-             });
+        toast.success(data.message || 'Garçom cadastrado com sucesso!');
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || 'Erro ao cadastrar garçom.');
+        setWaiterSaving(false);
+        return;
+      }
+    } else {
+      // Update existing waiter
+      setWaiterSaving(true);
+      try {
+        const waiterRef = doc(db, 'waiters', editingWaiter.id);
+        const updateData: any = {
+          name: nameTrimmed,
+          nome: nameTrimmed,
+          phone: phoneTrimmed,
+          telefone: phoneTrimmed,
+          updatedAt: new Date().toISOString()
+        };
 
-             await secondaryAuth.signOut();
-           } catch (authErr) {
-             console.error('Error updating waiter credentials in Auth:', authErr);
-             // If it fails because user didn't exist in Auth (legacy waiter), let's create it!
-             try {
-               const newTempEmail = `${normalizedLogin}@temp.cardapionamesa.com`;
-               const authUserCred = await createUserWithEmailAndPassword(secondaryAuth, newTempEmail, waiterPasswordTemp.trim());
-               const authUid = authUserCred.user.uid;
-               
-               updateData.userId = authUid;
-
-               await setDoc(doc(db, 'users', authUid), {
-                 id: authUid,
-                 name: waiterName.trim(),
-                 email: newTempEmail,
-                 role: 'waiter',
-                 restaurantId: userProfile.restaurantId,
-                 waiterDocId: editingWaiter.id,
-                 createdAt: new Date().toISOString()
-               });
-
-               await secondaryAuth.signOut();
-             } catch (createErr) {
-               console.error('Failed to recreate auth user for legacy waiter:', createErr);
-             }
-           }
-         } else {
-          // If they already completed first access, update their name in users collection
-          if (editingWaiter.userId) {
-            await updateDoc(doc(db, 'users', editingWaiter.userId), {
-              name: waiterName.trim()
-            });
+        if (editingWaiter.isFirstAccess && rawLoginOrEmail) {
+          const oldNormalizedLogin = (editingWaiter.login || '').trim().toLowerCase();
+          if (oldNormalizedLogin !== rawLoginOrEmail) {
+            const dupQuery = query(
+              collection(db, 'waiters'),
+              where('restaurantId', '==', userProfile.restaurantId),
+              where('login', '==', rawLoginOrEmail)
+            );
+            const dupSnap = await getDocs(dupQuery);
+            if (!dupSnap.empty) {
+              toast.error('Este login já está em uso por outro garçom.');
+              setWaiterSaving(false);
+              return;
+            }
           }
+          updateData.login = rawLoginOrEmail;
+        }
+
+        if (editingWaiter.userId) {
+          await updateDoc(doc(db, 'users', editingWaiter.userId), {
+            name: nameTrimmed,
+            nome: nameTrimmed,
+            phone: phoneTrimmed,
+            telefone: phoneTrimmed,
+            updatedAt: new Date().toISOString()
+          });
         }
 
         await updateDoc(waiterRef, updateData);
         toast.success('Garçom atualizado com sucesso!');
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || 'Erro ao atualizar garçom.');
+        setWaiterSaving(false);
+        return;
       }
-
-      setShowWaiterModal(false);
-      setEditingWaiter(null);
-      setWaiterName('');
-      setWaiterPhone('');
-      setWaiterLogin('');
-      setWaiterPasswordTemp('');
-      fetchWaiters();
-    } catch (err) {
-      console.error(err);
-      toast.error('Erro ao salvar garçom');
     }
+
+    setShowWaiterModal(false);
+    setEditingWaiter(null);
+    setWaiterName('');
+    setWaiterPhone('');
+    setWaiterLogin('');
+    setWaiterPasswordTemp('');
+    setWaiterSaving(false);
+    fetchWaiters();
   };
 
   const handleToggleWaiterStatus = async (waiter: any) => {
@@ -1166,7 +1179,7 @@ export default function AdminSettings() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      Login Temporário *
+                      E-mail / Login *
                     </label>
                     <input
                       type="text"
@@ -1174,11 +1187,11 @@ export default function AdminSettings() {
                       disabled={editingWaiter && !editingWaiter.isFirstAccess}
                       value={waiterLogin}
                       onChange={(e) => setWaiterLogin(e.target.value)}
-                      placeholder="Ex: joao.garcom"
+                      placeholder="Ex: joao@restaurante.com ou joao.garcom"
                       className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     {editingWaiter && !editingWaiter.isFirstAccess && (
-                      <p className="text-[10px] text-slate-400 mt-1">O login provisório não pode ser alterado após o primeiro acesso.</p>
+                      <p className="text-[10px] text-slate-400 mt-1">O e-mail/login não pode ser alterado após o primeiro acesso.</p>
                     )}
                   </div>
 
@@ -1192,7 +1205,7 @@ export default function AdminSettings() {
                       disabled={editingWaiter && !editingWaiter.isFirstAccess}
                       value={waiterPasswordTemp}
                       onChange={(e) => setWaiterPasswordTemp(e.target.value)}
-                      placeholder="Ex: 123456"
+                      placeholder="Ex: Senha123 (Mínimo 8 caracteres, letra e número)"
                       className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     {editingWaiter && !editingWaiter.isFirstAccess && (
@@ -1214,9 +1227,17 @@ export default function AdminSettings() {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs py-2.5 rounded-xl shadow-sm hover:shadow transition-all"
+                    disabled={waiterSaving}
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs py-2.5 rounded-xl shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Salvar Garçom
+                    {waiterSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Processando...</span>
+                      </>
+                    ) : (
+                      <span>{editingWaiter ? 'Salvar Alterações' : 'Salvar Garçom'}</span>
+                    )}
                   </button>
                 </div>
               </form>
