@@ -255,10 +255,15 @@ export default function AdminTables() {
 
     try {
       // 1. Close table session in DB
-      await updateDoc(doc(db, 'tableSessions', session.id), {
+      const closePayload: any = {
         status: 'closed',
         closedAt: new Date().toISOString()
-      });
+      };
+      if (session.waiterId && !session.ratedWaiterId) {
+        closePayload.ratedWaiterId = session.waiterId;
+        closePayload.ratedWaiterName = session.waiterName || '';
+      }
+      await updateDoc(doc(db, 'tableSessions', session.id), closePayload);
 
       // 2. Resolve any pending waiter calls
       await resolveCalls(tableId);
@@ -636,7 +641,12 @@ export default function AdminTables() {
                               <button
                                 onClick={async () => {
                                   try {
-                                    await updateDoc(doc(db, 'tableSessions', activeSession.id), { paymentStatus: 'paid' });
+                                    const payPayload: any = { paymentStatus: 'paid' };
+                                    if (activeSession.waiterId && !activeSession.ratedWaiterId) {
+                                      payPayload.ratedWaiterId = activeSession.waiterId;
+                                      payPayload.ratedWaiterName = activeSession.waiterName || '';
+                                    }
+                                    await updateDoc(doc(db, 'tableSessions', activeSession.id), payPayload);
                                     await updateDoc(doc(db, 'tables', selectedTable.id), { status: 'free' });
                                     toast.success('✅ Pagamento confirmado. Mesa liberada com sucesso.');
                                   } catch (e) {

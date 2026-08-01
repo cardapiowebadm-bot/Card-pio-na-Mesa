@@ -27,7 +27,8 @@ import {
   Eye,
   KeyRound,
   Shield,
-  Smartphone
+  Smartphone,
+  Star
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -45,6 +46,7 @@ export default function AdminSettings() {
   const [couvertEnabled, setCouvertEnabled] = useState(false);
   const [couvertType, setCouvertType] = useState<'percentage' | 'fixed'>('fixed');
   const [couvertValue, setCouvertValue] = useState<string>('0');
+  const [enableWaiterRating, setEnableWaiterRating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmType, setConfirmType] = useState<'customers' | 'orders' | 'dashboard' | null>(null);
   const [cleaning, setCleaning] = useState(false);
@@ -61,6 +63,55 @@ export default function AdminSettings() {
   const [waiterLogin, setWaiterLogin] = useState('');
   const [waiterPasswordTemp, setWaiterPasswordTemp] = useState('');
   const [waiterSaving, setWaiterSaving] = useState(false);
+
+  // Waiter ratings modal state
+  const [selectedWaiterForRatings, setSelectedWaiterForRatings] = useState<any | null>(null);
+  const [waiterRatingsList, setWaiterRatingsList] = useState<any[]>([]);
+  const [loadingRatings, setLoadingRatings] = useState<boolean>(false);
+
+  const handleOpenRatingsModal = async (waiter: any) => {
+    setSelectedWaiterForRatings(waiter);
+    setWaiterRatingsList([]);
+    setLoadingRatings(true);
+
+    const apiBase = import.meta.env.VITE_API_BASE_URL;
+    if (!apiBase) {
+      toast.error('Erro de configuração: VITE_API_BASE_URL não configurada.');
+      setLoadingRatings(false);
+      return;
+    }
+
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        toast.error('Sessão expirada. Por favor, faça login novamente.');
+        setLoadingRatings(false);
+        return;
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const response = await fetch(`${apiBase}/api/waiters/${waiter.id}/ratings`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        }
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao carregar avaliações.');
+      }
+
+      setWaiterRatingsList(data.ratings || []);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Erro ao carregar avaliações do garçom.');
+    } finally {
+      setLoadingRatings(false);
+    }
+  };
 
   const fetchWaiters = async () => {
     if (!userProfile?.restaurantId) return;
@@ -410,6 +461,7 @@ export default function AdminSettings() {
       setCouvertEnabled(!!restaurant.couvertEnabled);
       setCouvertType(restaurant.couvertType || 'fixed');
       setCouvertValue(String(restaurant.couvertValue !== undefined ? restaurant.couvertValue : 0));
+      setEnableWaiterRating(!!restaurant.enableWaiterRating);
     }
   }, [restaurant]);
 
@@ -437,7 +489,8 @@ export default function AdminSettings() {
         serviceTax: serviceTaxType === 'percentage' ? sTaxVal : 10, // backward compat
         couvertEnabled,
         couvertType,
-        couvertValue: cVal
+        couvertValue: cVal,
+        enableWaiterRating
       });
       toast.success('Configurações salvas com sucesso!');
     } catch (err) {
@@ -855,6 +908,24 @@ export default function AdminSettings() {
                 </div>
               )}
             </div>
+
+            {/* Avaliação de Garçons Section */}
+            <div className="bg-slate-50 p-5 rounded-2xl space-y-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Avaliação de Garçons</h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Ao ativar, o cliente poderá avaliar de 1 a 5 estrelas e deixar um comentário opcional sobre o garçom após a confirmação do pagamento.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableWaiterRating}
+                  onChange={(e) => setEnableWaiterRating(e.target.checked)}
+                  className="h-5 w-5 text-rose-600 focus:ring-rose-500 border-slate-300 rounded-lg shrink-0 cursor-pointer"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Action Footer */}
@@ -1051,15 +1122,28 @@ export default function AdminSettings() {
                         </h4>
                         <p className="text-[11px] text-slate-500 font-mono mt-0.5">{waiter.phone}</p>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg ${
-                          waiter.status === 'active'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {waiter.status === 'active' ? 'Ativo' : 'Inativo'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {waiter.ratingCount && waiter.ratingCount > 0 ? (
+                          <div className="flex items-center gap-1 bg-amber-50 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded-lg border border-amber-200/60" title={`${waiter.ratingCount} avaliações`}>
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                            <span>{Number(waiter.ratingAverage || 0).toFixed(1)}</span>
+                            <span className="text-[10px] text-amber-600 font-normal">({waiter.ratingCount})</span>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 bg-slate-50 rounded-md">
+                            Sem avaliações
+                          </div>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg ${
+                            waiter.status === 'active'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {waiter.status === 'active' ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="bg-slate-50 p-3 rounded-2xl space-y-2 border border-slate-100 text-xs">
@@ -1087,6 +1171,15 @@ export default function AdminSettings() {
                   </div>
 
                   <div className="flex gap-2 pt-2 border-t border-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRatingsModal(waiter)}
+                      className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-bold text-[11px] py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1"
+                      title="Ver avaliações deste garçom"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span>Avaliações</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleToggleWaiterStatus(waiter)}
@@ -1286,6 +1379,79 @@ export default function AdminSettings() {
               >
                 {cleaning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                 Confirmar Exclusão
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Avaliações do Garçom */}
+      {selectedWaiterForRatings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-lg w-full space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                  Avaliações de {selectedWaiterForRatings.name}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Média: <strong className="text-slate-800">{Number(selectedWaiterForRatings.ratingAverage || 0).toFixed(1)} / 5</strong> ({selectedWaiterForRatings.ratingCount || 0} avaliações)
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedWaiterForRatings(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 space-y-3 pr-1">
+              {loadingRatings ? (
+                <div className="p-8 text-center text-slate-400 space-y-2">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-amber-500" />
+                  <p className="text-xs">Buscando avaliações...</p>
+                </div>
+              ) : waiterRatingsList.length === 0 ? (
+                <div className="p-8 text-center text-slate-400">
+                  <p className="text-xs">Nenhuma avaliação registrada para este garçom.</p>
+                </div>
+              ) : (
+                waiterRatingsList.map((item) => (
+                  <div key={item.id} className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-bold text-slate-700">Mesa {item.tableNumber || '?'}</span>
+                      <span className="text-[10px] text-slate-400">
+                        {item.createdAt ? new Date(item.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star
+                          key={s}
+                          className={`w-4 h-4 ${
+                            s <= item.rating ? 'text-amber-400 fill-amber-400' : 'text-slate-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    {item.comment && (
+                      <p className="text-xs text-slate-600 italic bg-white p-2 rounded-xl border border-slate-100 mt-1">
+                        "{item.comment}"
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setSelectedWaiterForRatings(null)}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all"
+              >
+                Fechar
               </button>
             </div>
           </div>

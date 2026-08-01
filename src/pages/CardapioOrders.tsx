@@ -19,15 +19,60 @@ import {
   ArrowLeft,
   ChevronRight,
   Smile,
-  DollarSign
+  DollarSign,
+  Star
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function CardapioOrders() {
-  const { activeSession, restaurant } = useCardapio();
+  const { activeSession, restaurant, requestPayment } = useCardapio();
   const [orders, setOrders] = useState<Order[]>([]);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Rating state
+  const [selectedRating, setSelectedRating] = useState<number>(0);
+  const [hoverRating, setHoverRating] = useState<number>(0);
+  const [ratingComment, setRatingComment] = useState<string>('');
+  const [ratingSubmitting, setRatingSubmitting] = useState<boolean>(false);
+  const [ratingDismissed, setRatingDismissed] = useState<boolean>(false);
+
+  const handleSubmitRating = async () => {
+    if (!selectedRating || selectedRating < 1 || selectedRating > 5) {
+      toast.error('Por favor, selecione de 1 a 5 estrelas.');
+      return;
+    }
+    const apiBase = import.meta.env.VITE_API_BASE_URL;
+    if (!apiBase) {
+      toast.error('Erro de configuração: VITE_API_BASE_URL não configurada.');
+      return;
+    }
+    if (!restaurant?.id || !activeSession?.id) return;
+
+    setRatingSubmitting(true);
+    try {
+      const response = await fetch(`${apiBase}/api/waiters/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          tableSessionId: activeSession.id,
+          rating: selectedRating,
+          comment: ratingComment.trim()
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao enviar avaliação.');
+      }
+      toast.success('Obrigado pela sua avaliação!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Erro ao enviar avaliação.');
+    } finally {
+      setRatingSubmitting(false);
+    }
+  };
 
   // Load orders for this session in real-time
   useEffect(() => {
@@ -77,14 +122,19 @@ export default function CardapioOrders() {
 
   const total = subtotal + serviceTax + couvert;
 
-  const handleRequestCheckout = async (method: 'pix' | 'card') => {
+  const handleRequestCheckout = async (method: 'pix' | 'card' | 'cash') => {
     if (!activeSession) return;
     try {
-      await updateDoc(doc(db, 'tableSessions', activeSession.id), {
-        paymentMethod: method,
-        paymentStatus: 'pending'
-      });
-      toast.success(`Fechamento solicitado via ${method.toUpperCase()}! Aguarde a confirmação de um atendente.`);
+      if (requestPayment) {
+        await requestPayment(method);
+      } else {
+        await updateDoc(doc(db, 'tableSessions', activeSession.id), {
+          paymentMethod: method,
+          paymentStatus: 'pending'
+        });
+      }
+      const label = method === 'pix' ? 'PIX' : method === 'card' ? 'CARTÃO' : 'DINHEIRO';
+      toast.success(`Fechamento solicitado via ${label}! Aguarde a confirmação de um atendente.`);
       setShowCheckoutModal(false);
     } catch (e) {
       console.error(e);
@@ -93,6 +143,10 @@ export default function CardapioOrders() {
   };
 
   if (activeSession?.paymentStatus === 'paid') {
+    const waiterIdForRating = activeSession.ratedWaiterId || activeSession.waiterId;
+    const waiterNameForRating = activeSession.ratedWaiterName || activeSession.waiterName || 'Atendente';
+    const canRate = restaurant?.enableWaiterRating && waiterIdForRating && !activeSession.ratingSubmitted && !ratingDismissed;
+
     return (
       <div className="min-h-[70vh] flex flex-col justify-center items-center text-center p-6 space-y-4 animate-fade-in">
         <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
@@ -102,6 +156,76 @@ export default function CardapioOrders() {
           <h3 className="font-display font-bold text-xl text-slate-800">Pagamento Confirmado!</h3>
           <p className="text-slate-500 text-xs mt-1.5 max-w-[260px] mx-auto">Muito obrigado pela visita. Sua comanda foi fechada e a mesa liberada. Volte sempre!</p>
         </div>
+
+        {/* Rating Section */}
+        {canRate && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm max-w-sm w-full mt-4 text-center space-y-3 animate-fade-in">
+            <div className="flex items-center justify-center gap-1.5 text-amber-500 mb-1">
+              <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+              <span className="font-extrabold text-xs uppercase tracking-wider text-slate-700">Avalie seu atendimento</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Como foi o atendimento com <strong className="text-slate-800">{waiterNameForRating}</strong>?
+            </p>
+
+            {/* Stars */}
+            <div className="flex justify-center items-center gap-2 py-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setSelectedRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className="p-1 transition-transform hover:scale-110 focus:outline-none"
+                >
+                  <Star
+                    className={`w-7 h-7 ${
+                      (hoverRating || selectedRating) >= star
+                        ? 'text-amber-400 fill-amber-400'
+                        : 'text-slate-200'
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+
+            {/* Optional Comment */}
+            <textarea
+              value={ratingComment}
+              onChange={(e) => setRatingComment(e.target.value.slice(0, 500))}
+              placeholder="Deixe um comentário opcional..."
+              rows={2}
+              className="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 resize-none"
+            />
+            <p className="text-[10px] text-slate-400 text-right">{ratingComment.length}/500</p>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setRatingDismissed(true)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs py-2.5 rounded-xl transition-all"
+              >
+                Agora não
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitRating}
+                disabled={ratingSubmitting || !selectedRating}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-xl shadow transition-all flex items-center justify-center gap-1.5"
+              >
+                {ratingSubmitting ? 'Enviando...' : 'Enviar avaliação'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeSession.ratingSubmitted && (
+          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200/60 rounded-2xl p-4 max-w-sm w-full mt-4 text-center text-xs font-semibold flex items-center justify-center gap-2">
+            <Star className="w-4 h-4 fill-emerald-600 text-emerald-600" />
+            <span>Obrigado! Sua avaliação foi registrada com sucesso.</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -293,6 +417,17 @@ export default function CardapioOrders() {
                 <div>
                   <h4 className="font-bold text-sm text-slate-800 group-hover:text-rose-700">Pagar com Cartão (Crédito/Débito)</h4>
                   <p className="text-xs text-slate-400 mt-0.5">Trazer a maquininha até a mesa</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-rose-500" />
+              </button>
+
+              <button
+                onClick={() => handleRequestCheckout('cash')}
+                className="w-full text-left p-4 bg-slate-50 hover:bg-rose-50 border border-slate-100 hover:border-rose-100 rounded-2xl flex items-center justify-between transition-all group"
+              >
+                <div>
+                  <h4 className="font-bold text-sm text-slate-800 group-hover:text-rose-700">Pagar com Dinheiro</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Pagar em dinheiro diretamente ao atendente</p>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-rose-500" />
               </button>

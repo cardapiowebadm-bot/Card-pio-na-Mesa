@@ -65,6 +65,7 @@ export interface Restaurant {
   couvertType?: 'percentage' | 'fixed';
   couvertValue?: number;
   themeColor?: string;
+  enableWaiterRating?: boolean;
   // Estrutura Stripe e Ciclo de Vida do SaaS
   subscriptionStatus?: string;
   trialStartDate?: string;
@@ -140,12 +141,16 @@ export interface TableSession {
   status: 'active' | 'closed';
   createdAt: any;
   closedAt?: any;
-  paymentMethod?: 'pix' | 'card';
+  paymentMethod?: 'pix' | 'card' | 'cash';
   paymentStatus?: 'pending' | 'paid';
   waiterId?: string;
   waiterName?: string;
   createdBy?: 'customer' | 'waiter';
   history?: TableSessionHistoryEntry[];
+  ratingSubmitted?: boolean;
+  ratingValue?: number;
+  ratedWaiterId?: string;
+  ratedWaiterName?: string;
 }
 
 export interface OrderItem {
@@ -191,6 +196,21 @@ export interface Waiter {
   isFirstAccess: boolean;
   email?: string;
   userId?: string;
+  createdAt: string;
+  ratingAverage?: number;
+  ratingCount?: number;
+  ratingSum?: number;
+}
+
+export interface WaiterRating {
+  id: string;
+  restaurantId: string;
+  tableSessionId: string;
+  waiterId: string;
+  waiterName?: string;
+  tableNumber?: number;
+  rating: number;
+  comment?: string;
   createdAt: string;
 }
 

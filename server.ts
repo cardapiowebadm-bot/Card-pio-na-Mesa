@@ -724,6 +724,207 @@ app.post('/api/waiters', async (req, res) => {
   }
 });
 
+// --- ENDPOINTS PARA AVALIAÇÃO DE GARÇONS ---
+
+// POST /api/waiters/rating - Criar avaliação de garçom (Client-Side, atômico, server-side validated)
+app.post('/api/waiters/rating', async (req, res) => {
+  try {
+    const { restaurantId, tableSessionId, rating, comment } = req.body;
+
+    const cleanRestaurantId = String(restaurantId || '').trim();
+    const cleanTableSessionId = String(tableSessionId || '').trim();
+    const numericRating = Number(rating);
+    const sanitizedComment = String(comment || '').trim().substring(0, 500);
+
+    if (!cleanRestaurantId || !cleanTableSessionId) {
+      return res.status(400).json({ success: false, error: 'IDs do restaurante e da sessão são obrigatórios.' });
+    }
+
+    if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
+      return res.status(400).json({ success: false, error: 'A avaliação deve ser entre 1 e 5 estrelas.' });
+    }
+
+    const ratingDocRef = adminDb.collection('waiterRatings').doc(cleanTableSessionId);
+
+    const result = await adminDb.runTransaction(async (transaction) => {
+      // 1. Verificar se a avaliação para esta sessão já existe
+      const ratingSnap = await transaction.get(ratingDocRef);
+      if (ratingSnap.exists) {
+        throw new Error('ALREADY_RATED');
+      }
+
+      // 2. Buscar restaurante e confirmar que recurso de avaliação está ativo
+      const restRef = adminDb.collection('restaurants').doc(cleanRestaurantId);
+      const restSnap = await transaction.get(restRef);
+      if (!restSnap.exists || restSnap.data()?.enableWaiterRating !== true) {
+        throw new Error('RATING_DISABLED');
+      }
+
+      // 3. Buscar sessão da mesa e confirmar pagamento pago
+      const sessionRef = adminDb.collection('tableSessions').doc(cleanTableSessionId);
+      const sessionSnap = await transaction.get(sessionRef);
+      if (!sessionSnap.exists) {
+        throw new Error('SESSION_NOT_FOUND');
+      }
+
+      const sessionData = sessionSnap.data() || {};
+
+      if (sessionData.restaurantId !== cleanRestaurantId) {
+        throw new Error('INVALID_RESTAURANT');
+      }
+
+      if (sessionData.paymentStatus !== 'paid') {
+        throw new Error('PAYMENT_NOT_PAID');
+      }
+
+      const ratedWaiterId = sessionData.ratedWaiterId || sessionData.waiterId;
+      const ratedWaiterName = sessionData.ratedWaiterName || sessionData.waiterName;
+
+      if (!ratedWaiterId) {
+        throw new Error('NO_WAITER_ASSIGNED');
+      }
+
+      // 4. Buscar garçom no Firestore
+      const waiterRef = adminDb.collection('waiters').doc(ratedWaiterId);
+      const waiterSnap = await transaction.get(waiterRef);
+      if (!waiterSnap.exists) {
+        throw new Error('WAITER_NOT_FOUND');
+      }
+
+      const waiterData = waiterSnap.data() || {};
+      const currentCount = Number(waiterData.ratingCount || 0);
+      const currentSum = Number(waiterData.ratingSum || 0);
+
+      const newCount = currentCount + 1;
+      const newSum = currentSum + numericRating;
+      const newAvg = Number((newSum / newCount).toFixed(2));
+
+      const nowIso = new Date().toISOString();
+
+      // Gravar avaliação atômica
+      transaction.set(ratingDocRef, {
+        id: cleanTableSessionId,
+        restaurantId: cleanRestaurantId,
+        tableSessionId: cleanTableSessionId,
+        waiterId: ratedWaiterId,
+        waiterName: ratedWaiterName || waiterData.name || '',
+        tableNumber: sessionData.tableNumber || 0,
+        rating: numericRating,
+        comment: sanitizedComment,
+        createdAt: nowIso
+      });
+
+      // Atualizar métricas do garçom
+      transaction.update(waiterRef, {
+        ratingCount: newCount,
+        ratingSum: newSum,
+        ratingAverage: newAvg,
+        updatedAt: nowIso
+      });
+
+      // Atualizar flag na sessão
+      transaction.update(sessionRef, {
+        ratingSubmitted: true,
+        ratingValue: numericRating,
+        ratedWaiterId,
+        ratedWaiterName: ratedWaiterName || waiterData.name || ''
+      });
+
+      return { newAvg, newCount };
+    });
+
+    return res.json({ success: true, message: 'Avaliação enviada com sucesso!', ...result });
+
+  } catch (err: any) {
+    if (err.message === 'ALREADY_RATED') {
+      return res.status(400).json({ success: false, error: 'Esta mesa/sessão já foi avaliada.' });
+    }
+    if (err.message === 'RATING_DISABLED') {
+      return res.status(400).json({ success: false, error: 'As avaliações de garçom estão desativadas para este restaurante.' });
+    }
+    if (err.message === 'SESSION_NOT_FOUND') {
+      return res.status(404).json({ success: false, error: 'Sessão da mesa não encontrada.' });
+    }
+    if (err.message === 'PAYMENT_NOT_PAID') {
+      return res.status(400).json({ success: false, error: 'O pagamento da sessão ainda não foi confirmado.' });
+    }
+    if (err.message === 'NO_WAITER_ASSIGNED') {
+      return res.status(400).json({ success: false, error: 'Não há garçom atribuído a esta sessão.' });
+    }
+    if (err.message === 'WAITER_NOT_FOUND') {
+      return res.status(404).json({ success: false, error: 'Garçom atribuído não foi encontrado.' });
+    }
+    console.error('[POST /api/waiters/rating] Erro:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Erro interno ao salvar avaliação.' });
+  }
+});
+
+// GET /api/waiters/:waiterId/ratings - Buscar histórico de avaliações do garçom (Autenticado para Admin/Owner)
+app.get('/api/waiters/:waiterId/ratings', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Token de autenticação ausente.' });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1].trim();
+    const adminAuth = getAdminAuth(getAdminApp());
+
+    let decodedToken;
+    try {
+      decodedToken = await adminAuth.verifyIdToken(idToken);
+    } catch (tokenErr: any) {
+      return res.status(401).json({ success: false, error: 'Token de autenticação inválido ou expirado.' });
+    }
+
+    const uid = decodedToken.uid;
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(403).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    const userData = userDoc.data() || {};
+    const userRole = userData.role;
+    const userRestaurantId = userData.restaurantId;
+
+    if (!['owner', 'manager', 'master'].includes(userRole)) {
+      return res.status(403).json({ success: false, error: 'Acesso negado para este perfil de usuário.' });
+    }
+
+    const waiterId = String(req.params.waiterId || '').trim();
+    if (!waiterId) {
+      return res.status(400).json({ success: false, error: 'ID do garçom é obrigatório.' });
+    }
+
+    const waiterDoc = await adminDb.collection('waiters').doc(waiterId).get();
+    if (!waiterDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Garçom não encontrado.' });
+    }
+
+    const waiterData = waiterDoc.data() || {};
+    if (userRole !== 'master' && waiterData.restaurantId !== userRestaurantId) {
+      return res.status(403).json({ success: false, error: 'Acesso não autorizado para este restaurante.' });
+    }
+
+    const ratingsSnap = await adminDb.collection('waiterRatings')
+      .where('waiterId', '==', waiterId)
+      .get();
+
+    const ratings = ratingsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    // Ordenar em memória para evitar a necessidade de novos índices compostos no Firestore
+    ratings.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    return res.json({ success: true, ratings });
+  } catch (err: any) {
+    console.error('[GET /api/waiters/:waiterId/ratings] Erro:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Erro ao buscar avaliações.' });
+  }
+});
+
 // Setup Vite Dev Server / Static files
 async function start() {
   try {

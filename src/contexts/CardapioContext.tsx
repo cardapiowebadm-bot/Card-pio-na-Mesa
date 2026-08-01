@@ -58,7 +58,7 @@ interface CardapioContextType {
   clearCart: () => void;
   sendOrder: () => Promise<void>;
   callWaiter: (reason: 'water' | 'napkin' | 'service' | 'bill' | 'other') => Promise<void>;
-  requestPayment: (method: 'pix' | 'card') => Promise<void>;
+  requestPayment: (method: 'pix' | 'card' | 'cash') => Promise<void>;
   closeSessionLocal: () => void;
   switchTable: () => void;
   joinSession: (session: TableSession) => void;
@@ -564,16 +564,21 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const requestPayment = async (method: 'pix' | 'card') => {
+  const requestPayment = async (method: 'pix' | 'card' | 'cash') => {
     if (!restaurant || !activeTableSession) return;
 
     try {
       // Update session status to billing
       const sessionRef = doc(db, 'tableSessions', activeTableSession.id);
-      await updateDoc(sessionRef, {
+      const sessionUpdatePayload: any = {
         paymentMethod: method,
         paymentStatus: 'pending'
-      });
+      };
+      if (activeTableSession.waiterId && !activeTableSession.ratedWaiterId) {
+        sessionUpdatePayload.ratedWaiterId = activeTableSession.waiterId;
+        sessionUpdatePayload.ratedWaiterName = activeTableSession.waiterName || '';
+      }
+      await updateDoc(sessionRef, sessionUpdatePayload);
 
       // Create billing call
       const callRef = doc(collection(db, 'waiterCalls'));
@@ -589,7 +594,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       // Create notification
-      const payLabel = method === 'pix' ? 'PIX' : 'Cartão (Maquininha)';
+      const payLabel = method === 'pix' ? 'PIX' : method === 'card' ? 'Cartão (Maquininha)' : 'Dinheiro';
       await addDoc(collection(db, 'notifications'), {
         restaurantId: restaurant.id,
         type: 'payment_request',
