@@ -98,7 +98,7 @@ service cloud.firestore {
                      (resource.data.status == 'active' &&
                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethod', 'paymentStatus']) && 
                       request.resource.data.paymentStatus == 'pending' && 
-                      request.resource.data.paymentMethod in ['pix', 'card']);
+                      request.resource.data.paymentMethod in ['pix', 'card', 'cash']);
       allow delete: if isLoggedIn() && isMemberOf(resource.data.restaurantId);
     }
 

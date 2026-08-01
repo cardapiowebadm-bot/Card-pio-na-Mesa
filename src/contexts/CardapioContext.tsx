@@ -570,15 +570,10 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       // Update session status to billing
       const sessionRef = doc(db, 'tableSessions', activeTableSession.id);
-      const sessionUpdatePayload: any = {
+      await updateDoc(sessionRef, {
         paymentMethod: method,
         paymentStatus: 'pending'
-      };
-      if (activeTableSession.waiterId && !activeTableSession.ratedWaiterId) {
-        sessionUpdatePayload.ratedWaiterId = activeTableSession.waiterId;
-        sessionUpdatePayload.ratedWaiterName = activeTableSession.waiterName || '';
-      }
-      await updateDoc(sessionRef, sessionUpdatePayload);
+      });
 
       // Create billing call
       const callRef = doc(collection(db, 'waiterCalls'));
