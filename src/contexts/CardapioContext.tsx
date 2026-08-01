@@ -459,6 +459,17 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setLoading(true);
     try {
+      const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+      let API_BASE_URL = rawApiBaseUrl ? String(rawApiBaseUrl).trim().replace(/\/$/, '') : '';
+
+      if (!API_BASE_URL && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+        API_BASE_URL = window.location.origin;
+      }
+
+      if (!API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname.includes('netlify.app') && !rawApiBaseUrl)) {
+        throw new Error('Configuração ausente: A variável VITE_API_BASE_URL não está definida no ambiente frontend do Netlify.');
+      }
+
       const payload = {
         restaurantId: restaurant.id,
         tableSessionId: activeTableSession.id,
@@ -472,11 +483,22 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         waiterName: userProfile && userProfile.role === 'waiter' ? userProfile.name : (activeTableSession.waiterName || null)
       };
 
-      const response = await fetch('/api/orders', {
+      const response = await fetch(`${API_BASE_URL}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('[POST /api/orders Error] Resposta do servidor não é JSON:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: text
+        });
+        throw new Error(`Erro do servidor (${response.status}). Resposta não é JSON: ${text.substring(0, 100)}`);
+      }
 
       const result = await response.json();
 

@@ -95,9 +95,16 @@ export const RestaurantBillingProvider: React.FC<{ children: React.ReactNode }> 
     loadRestaurantBilling();
 
     // Executa verificação de automações de ciclo de vida financeiro (Trials, Inadimplência, Alertas)
-    fetch('/api/scheduler/billing-check', { method: 'POST' }).catch(err => {
-      console.warn('Erro na execução automática do agendador financeiro:', err);
-    });
+    const rawBase = import.meta.env.VITE_API_BASE_URL;
+    let apiBase = rawBase ? String(rawBase).trim().replace(/\/$/, '') : '';
+    if (!apiBase && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+      apiBase = window.location.origin;
+    }
+    if (apiBase) {
+      fetch(`${apiBase}/api/scheduler/billing-check`, { method: 'POST' }).catch(err => {
+        console.warn('Erro na execução automática do agendador financeiro:', err);
+      });
+    }
   }, [restaurantId]);
 
   // Assinaturas em tempo real filtradas estritamente pelo restaurantId (Multi-tenant)

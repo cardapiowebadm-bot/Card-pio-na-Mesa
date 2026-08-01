@@ -243,14 +243,24 @@ export default function MasterFinancial() {
             onClick={async () => {
               const tid = toast.loading('Executando automações financeiras...');
               try {
-                const response = await fetch('/api/scheduler/billing-check?force=true', { method: 'POST' });
+                const rawBase = import.meta.env.VITE_API_BASE_URL;
+                let apiBase = rawBase ? String(rawBase).trim().replace(/\/$/, '') : '';
+                if (!apiBase && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+                  apiBase = window.location.origin;
+                }
+                const response = await fetch(`${apiBase}/api/scheduler/billing-check?force=true`, { method: 'POST' });
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                  const text = await response.text();
+                  throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+                }
                 const data = await response.json();
                 const res = data.result || {};
                 toast.dismiss(tid);
                 toast.success(`Automações concluídas! Trials expirados: ${res.expiredTrialsCount || 0}, Bloqueados por inadimplência: ${res.blockedUnpaidCount || 0}, Alertas gerados: ${res.notificationsCount || 0}`);
               } catch (err: any) {
                 toast.dismiss(tid);
-                toast.error('Erro ao executar automações.');
+                toast.error(err.message || 'Erro ao executar automações.');
               }
             }}
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-400 hover:text-emerald-300 rounded-xl text-xs font-semibold border border-emerald-500/30 flex items-center gap-2 transition-all"

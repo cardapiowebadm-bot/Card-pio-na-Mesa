@@ -176,6 +176,15 @@ export default function AdminProducts() {
     return true;
   };
 
+  const getApiBaseUrl = () => {
+    const raw = import.meta.env.VITE_API_BASE_URL;
+    let url = raw ? String(raw).trim().replace(/\/$/, '') : '';
+    if (!url && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+      url = window.location.origin;
+    }
+    return url;
+  };
+
   const handleAiGenerateDescription = async () => {
     if (!checkAiPermission()) return;
     if (!name) {
@@ -185,11 +194,16 @@ export default function AdminProducts() {
     setAiLoading(true);
     try {
       const selectedCat = categories.find(c => c.id === categoryId)?.name || '';
-      const response = await fetch('/api/gemini/generate-description', {
+      const response = await fetch(`${getApiBaseUrl()}/api/gemini/generate-description`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, category: selectedCat, details: description }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+      }
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setDescription(data.result);
@@ -211,18 +225,23 @@ export default function AdminProducts() {
     setAiLoading(true);
     try {
       const selectedCat = categories.find(c => c.id === categoryId)?.name || '';
-      const response = await fetch('/api/gemini/suggest-names', {
+      const response = await fetch(`${getApiBaseUrl()}/api/gemini/suggest-names`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ingredients: aiIngredients, category: selectedCat }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+      }
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setAiSuggestions(data.result);
       toast.success('Sugestões geradas abaixo!');
     } catch (err: any) {
       console.error(err);
-      toast.error('Erro ao consultar IA.');
+      toast.error(err.message || 'Erro ao consultar IA.');
     } finally {
       setAiLoading(false);
     }
@@ -237,11 +256,16 @@ export default function AdminProducts() {
     setAiLoading(true);
     try {
       const textToCorrect = description || name;
-      const response = await fetch('/api/gemini/correct-text', {
+      const response = await fetch(`${getApiBaseUrl()}/api/gemini/correct-text`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: textToCorrect }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+      }
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       if (description) {
@@ -252,7 +276,7 @@ export default function AdminProducts() {
       toast.success('Texto corrigido e polido!');
     } catch (err: any) {
       console.error(err);
-      toast.error('Erro de IA.');
+      toast.error(err.message || 'Erro de IA.');
     } finally {
       setAiLoading(false);
     }
@@ -265,11 +289,16 @@ export default function AdminProducts() {
     }
     setAiLoading(true);
     try {
-      const response = await fetch('/api/gemini/translate-menu', {
+      const response = await fetch(`${getApiBaseUrl()}/api/gemini/translate-menu`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, description, targetLanguage: lang }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+      }
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setName(data.name);
@@ -277,7 +306,7 @@ export default function AdminProducts() {
       toast.success(`Traduzido com sucesso para o ${lang}!`);
     } catch (err: any) {
       console.error(err);
-      toast.error('Erro de tradução por IA.');
+      toast.error(err.message || 'Erro de tradução por IA.');
     } finally {
       setAiLoading(false);
     }
@@ -296,18 +325,23 @@ export default function AdminProducts() {
         category: categories.find(c => c.id === p.categoryId)?.name || ''
       }));
 
-      const response = await fetch('/api/gemini/suggest-promotions', {
+      const response = await fetch(`${getApiBaseUrl()}/api/gemini/suggest-promotions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: prodsPayload }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Erro do servidor (${response.status}): ${text.substring(0, 100)}`);
+      }
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setAiSuggestions(data.result);
       toast.success('Ideias de combos criadas!');
     } catch (err: any) {
       console.error(err);
-      toast.error('Erro de IA.');
+      toast.error(err.message || 'Erro de IA.');
     } finally {
       setAiLoading(false);
     }

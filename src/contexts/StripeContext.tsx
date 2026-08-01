@@ -45,7 +45,11 @@ export const StripeProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [config, setConfig] = useState<StripeContextConfig | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  const rawBase = (import.meta as any).env?.VITE_API_BASE_URL;
+  let apiBase = rawBase ? String(rawBase).trim().replace(/\/$/, '') : '';
+  if (!apiBase && typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')) {
+    apiBase = window.location.origin;
+  }
 
   const fetchConfig = async () => {
     try {
