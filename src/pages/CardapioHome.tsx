@@ -1,12 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCardapio } from '../contexts/CardapioContext';
-import { Search, Sparkles, Plus, Clock, TrendingDown } from 'lucide-react';
+import { Search, Sparkles, Plus, Clock, TrendingDown, X, ShoppingBag } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function CardapioHome() {
   const { products, categories, addToCart } = useCardapio();
   const [selectedCatId, setSelectedCatId] = useState<'all' | string>('all');
   const [search, setSearch] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
+
+  // Close modal on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedProduct(null);
+      }
+    };
+    if (selectedProduct) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedProduct]);
 
   // Extract featured products
   const featuredProducts = products.filter(p => p.featured);
@@ -61,17 +77,18 @@ export default function CardapioHome() {
             {featuredProducts.map((prod) => (
               <div 
                 key={prod.id} 
-                className="bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm shrink-0 w-64 snap-start flex flex-col justify-between"
+                onClick={() => setSelectedProduct(prod)}
+                className="bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm shrink-0 w-64 snap-start flex flex-col justify-between cursor-pointer hover:shadow-md transition-all group"
               >
                 <div className="h-32 bg-slate-100 relative">
                   <img
                     src={prod.imageUrl}
                     alt={prod.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                   />
                   {prod.onSale && (
-                    <span className="absolute top-2.5 right-2.5 bg-emerald-600 text-white font-extrabold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                    <span className="absolute top-2.5 right-2.5 bg-emerald-600 text-white font-extrabold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-sm">
                       <TrendingDown className="w-2.5 h-2.5" />
                       Oferta
                     </span>
@@ -101,13 +118,17 @@ export default function CardapioHome() {
                     </div>
 
                     <button
-                      onClick={() => handleAddToCart(prod)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddToCart(prod);
+                      }}
                       disabled={prod.available === false}
                       className={`p-1.5 rounded-xl transition-all shadow-sm ${
                         prod.available === false 
                           ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                           : 'bg-rose-600 hover:bg-rose-700 text-white'
                       }`}
+                      title="Adicionar ao carrinho"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -159,18 +180,19 @@ export default function CardapioHome() {
             {filteredProducts.map((prod) => (
               <div 
                 key={prod.id} 
-                className="bg-white border border-slate-100 p-3 rounded-2xl flex gap-3 shadow-sm items-center hover:scale-[1.005] transition-all"
+                onClick={() => setSelectedProduct(prod)}
+                className="bg-white border border-slate-100 p-3 rounded-2xl flex gap-3 shadow-sm items-center hover:scale-[1.005] hover:shadow-md transition-all cursor-pointer group"
               >
                 {/* Product Thumbnail */}
                 <div className="w-20 h-20 bg-slate-100 rounded-xl overflow-hidden shrink-0 relative">
                   <img
                     src={prod.imageUrl}
                     alt={prod.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                   />
                   {prod.onSale && (
-                    <span className="absolute top-1 left-1 bg-emerald-600 text-white font-bold text-[8px] px-1 rounded-md">
+                    <span className="absolute top-1 left-1 bg-emerald-600 text-white font-bold text-[8px] px-1 rounded-md shadow-2xs">
                       %
                     </span>
                   )}
@@ -186,7 +208,7 @@ export default function CardapioHome() {
                 {/* Details */}
                 <div className="flex-1 min-w-0 flex flex-col justify-between h-20">
                   <div>
-                    <h4 className="font-bold text-slate-800 text-sm truncate">{prod.name}</h4>
+                    <h4 className="font-bold text-slate-800 text-sm truncate group-hover:text-rose-600 transition-colors">{prod.name}</h4>
                     <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">{prod.description || 'Sem descrição.'}</p>
                   </div>
 
@@ -203,18 +225,24 @@ export default function CardapioHome() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-0.5">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        {prod.prepareTime}m
-                      </span>
+                      {prod.prepareTime ? (
+                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-0.5">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          {prod.prepareTime}m
+                        </span>
+                      ) : null}
                       <button
-                        onClick={() => handleAddToCart(prod)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddToCart(prod);
+                        }}
                         disabled={prod.available === false}
                         className={`p-1.5 rounded-xl transition-all ${
                           prod.available === false
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-rose-50 hover:bg-rose-100 text-rose-600'
                         }`}
+                        title="Adicionar ao carrinho"
                       >
                         <Plus className="w-4 h-4" />
                       </button>
@@ -228,6 +256,110 @@ export default function CardapioHome() {
         )}
       </div>
 
+      {/* Product Detail Modal */}
+      {selectedProduct && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in"
+          onClick={() => setSelectedProduct(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-product-title"
+        >
+          <div 
+            className="relative bg-white w-full max-w-md rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 my-auto max-h-[90vh] overflow-y-auto border border-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              onClick={() => setSelectedProduct(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-all z-10 focus:outline-none focus:ring-2 focus:ring-rose-500"
+              aria-label="Fechar visualização do produto"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Product Large Image */}
+            <div className="w-full h-56 sm:h-64 bg-slate-100 rounded-2xl overflow-hidden relative flex items-center justify-center p-2">
+              <img
+                src={selectedProduct.imageUrl}
+                alt={selectedProduct.name}
+                className="w-full h-full object-contain rounded-xl"
+                referrerPolicy="no-referrer"
+              />
+              {selectedProduct.onSale && (
+                <span className="absolute top-3 left-3 bg-emerald-600 text-white font-extrabold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
+                  <TrendingDown className="w-3 h-3" />
+                  Oferta
+                </span>
+              )}
+              {selectedProduct.available === false && (
+                <span className="absolute bottom-3 left-3 bg-red-600 text-white font-extrabold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full shadow-sm">
+                  Indisponível
+                </span>
+              )}
+            </div>
+
+            {/* Product Title */}
+            <div>
+              <h3 id="modal-product-title" className="text-xl font-extrabold text-slate-800 tracking-tight leading-snug">
+                {selectedProduct.name}
+              </h3>
+            </div>
+
+            {/* Complete Description (no line-clamp, no truncation) */}
+            <div>
+              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
+                {selectedProduct.description || 'Sem descrição cadastrada para este produto.'}
+              </p>
+            </div>
+
+            {/* Preparation Time */}
+            {selectedProduct.prepareTime ? (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <Clock className="w-4 h-4 text-slate-400" />
+                <span>{selectedProduct.prepareTime} min</span>
+              </div>
+            ) : null}
+
+            {/* Price Section */}
+            <div className="flex items-baseline gap-2 pt-1">
+              {selectedProduct.onSale && selectedProduct.salePrice ? (
+                <>
+                  <span className="text-2xl font-extrabold text-rose-600">
+                    R$ {selectedProduct.salePrice.toFixed(2)}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-400 line-through">
+                    R$ {selectedProduct.price.toFixed(2)}
+                  </span>
+                </>
+              ) : (
+                <span className="text-2xl font-extrabold text-slate-800">
+                  R$ {selectedProduct.price.toFixed(2)}
+                </span>
+              )}
+            </div>
+
+            {/* Add to Cart Button */}
+            <button
+              onClick={() => {
+                handleAddToCart(selectedProduct);
+                setSelectedProduct(null);
+              }}
+              disabled={selectedProduct.available === false}
+              className={`w-full py-3.5 px-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-rose-500 ${
+                selectedProduct.available === false
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-900/10'
+              }`}
+            >
+              <ShoppingBag className="w-5 h-5" />
+              <span>Adicionar ao carrinho</span>
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
