@@ -38,21 +38,21 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event
 self.addEventListener('fetch', (event) => {
-  // We only intercept GET requests
+  // Never intercept non-GET requests (e.g. POST for placing orders)
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
 
-  // CRITICAL BYPASS: Never cache or intercept any Firebase/Google Auth/Firestore, hot-reload, or local development ports
+  // CRITICAL BYPASS: Never cache or intercept API endpoints (/api/*), Firebase/Google Auth/Firestore, hot-reload, or local dev ports
   if (
+    url.pathname.startsWith('/api/') ||
     url.hostname.endsWith('googleapis.com') ||
     url.hostname.endsWith('firebaseio.com') ||
     url.hostname.endsWith('firebase.app') ||
     url.hostname.endsWith('firebaseapp.com') ||
     url.hostname.includes('identitytoolkit') ||
     url.hostname.includes('securetoken') ||
-    (url.hostname === 'localhost' && url.port !== '3000') ||
-    url.pathname.startsWith('/api/') // Do not intercept backend Express API calls
+    (url.hostname === 'localhost' && url.port !== '3000')
   ) {
     return;
   }

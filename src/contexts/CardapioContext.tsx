@@ -453,231 +453,49 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCart([]);
   };
 
-  const sendOrder = async () => {
-    if (!restaurant || !activeTableSession || cart.length === 0) return;
-
-    setLoading(true);
-    try {
-      const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
-      
-      let serviceTaxValue = 0;
-      if (restaurant.serviceTaxEnabled !== false) {
-        const taxType = restaurant.serviceTaxType || 'percentage';
-        const taxVal = restaurant.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
-        if (taxType === 'percentage') {
-          serviceTaxValue = (taxVal / 100) * subtotal;
-        } else {
-          const hasServiceTax = sessionOrders.some(o => o.serviceTax !== undefined && o.serviceTax > 0);
-          serviceTaxValue = hasServiceTax ? 0 : taxVal;
-        }
-      }
-
-      let couvertValue = 0;
-      if (restaurant.couvertEnabled) {
-        const couvertType = restaurant.couvertType || 'fixed';
-        const couvertVal = restaurant.couvertValue !== undefined ? restaurant.couvertValue : 0;
-        if (couvertType === 'percentage') {
-          couvertValue = (couvertVal / 100) * subtotal;
-        } else {
-          const hasCouvert = sessionOrders.some(o => o.couvert !== undefined && o.couvert > 0);
-          couvertValue = hasCouvert ? 0 : couvertVal;
-        }
-      }
-
-      const total = subtotal + serviceTaxValue + couvertValue;
-
-      const orderRef = doc(collection(db, 'orders'));
-      const newOrder: Order = {
-        id: orderRef.id,
-        tableSessionId: activeTableSession.id,
-        tableId: activeTableSession.tableId,
-        tableNumber: activeTableSession.tableNumber,
-        restaurantId: restaurant.id,
-        items: cart.map(item => ({
-          productId: item.productId,
-          name: item.name,
-          price: Number(item.price),
-          quantity: Number(item.quantity),
-          notes: item.notes || ''
-        })),
-        subtotal,
-        serviceTax: serviceTaxValue,
-        couvert: couvertValue,
-        total,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        customerName: activeTableSession.customerName,
-        customerPhone: activeTableSession.customerPhone
-      };
-
-      // Set waiter tracking properties dynamically
-      if (userProfile && userProfile.role === 'waiter') {
-        newOrder.createdBy = 'waiter';
-        newOrder.waiterId = userProfile.id;
-        newOrder.waiterName = userProfile.name;
-      } else {
-        newOrder.createdBy = 'customer';
-        if (activeTableSession.waiterId) {
-          newOrder.waiterId = activeTableSession.waiterId;
-          newOrder.waiterName = activeTableSession.waiterName;
-        }
-      }
-
-      await setDoc(orderRef, newOrder);
-
-      // Record in table session history
-      try {
-        const sessionDocRef = doc(db, 'tableSessions', activeTableSession.id);
-        await updateDoc(sessionDocRef, {
-          history: arrayUnion({
-            timestamp: new Date().toISOString(),
-            action: 'Pedido Realizado',
-            userType: newOrder.createdBy === 'waiter' ? 'waiter' : 'customer',
-            userName: newOrder.createdBy === 'waiter' ? (newOrder.waiterName || 'Garçom') : activeTableSession.customerName,
-            details: `Realizou o pedido #${orderRef.id.substring(0, 5).toUpperCase()} no total de R$ ${total.toFixed(2)}.`
-          })
-        });
-      } catch (historyErr) {
-        console.error('Failed to append to history', historyErr);
-      }
-
-      // Create notification
-      await addDoc(collection(db, 'notifications'), {
-        restaurantId: restaurant.id,
-        type: 'new_order',
-        message: `Novo pedido de R$ ${total.toFixed(2)} para a Mesa ${activeTableSession.tableNumber}`,
-        status: 'unread',
-        referenceId: orderRef.id,
-        tableNumber: activeTableSession.tableNumber,
-        createdAt: new Date().toISOString()
-      });
-
-      // Update table status to pending order
-      const tableRef = doc(db, 'tables', activeTableSession.tableId);
-      await updateDoc(tableRef, { status: 'occupied' });
-
-      setCart([]);
-    } catch (err) {
-      console.error(err);
-      throw new Error('Falha ao enviar pedido');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const checkoutCart = async (itemsWithNotes?: CartItem[]) => {
     const activeItems = itemsWithNotes || cart;
     if (!restaurant || !activeTableSession || activeItems.length === 0) return;
 
     setLoading(true);
     try {
-      const subtotal = activeItems.reduce((acc, item) => acc + (Number(item.price) * Number(item.quantity)), 0);
-      
-      let serviceTaxValue = 0;
-      if (restaurant.serviceTaxEnabled !== false) {
-        const taxType = restaurant.serviceTaxType || 'percentage';
-        const taxVal = restaurant.serviceTaxValue !== undefined ? restaurant.serviceTaxValue : 10;
-        if (taxType === 'percentage') {
-          serviceTaxValue = (taxVal / 100) * subtotal;
-        } else {
-          const hasServiceTax = sessionOrders.some(o => o.serviceTax !== undefined && o.serviceTax > 0);
-          serviceTaxValue = hasServiceTax ? 0 : taxVal;
-        }
-      }
-
-      let couvertValue = 0;
-      if (restaurant.couvertEnabled) {
-        const couvertType = restaurant.couvertType || 'fixed';
-        const couvertVal = restaurant.couvertValue !== undefined ? restaurant.couvertValue : 0;
-        if (couvertType === 'percentage') {
-          couvertValue = (couvertVal / 100) * subtotal;
-        } else {
-          const hasCouvert = sessionOrders.some(o => o.couvert !== undefined && o.couvert > 0);
-          couvertValue = hasCouvert ? 0 : couvertVal;
-        }
-      }
-
-      const total = subtotal + serviceTaxValue + couvertValue;
-
-      const orderRef = doc(collection(db, 'orders'));
-      const newOrder: Order = {
-        id: orderRef.id,
-        tableSessionId: activeTableSession.id,
-        tableId: activeTableSession.tableId,
-        tableNumber: activeTableSession.tableNumber,
+      const payload = {
         restaurantId: restaurant.id,
+        tableSessionId: activeTableSession.id,
         items: activeItems.map(item => ({
           productId: item.productId,
-          name: item.name,
-          price: Number(item.price),
-          quantity: Number(item.quantity),
+          quantity: Number(item.quantity) || 1,
           notes: item.notes || ''
         })),
-        subtotal,
-        serviceTax: serviceTaxValue,
-        couvert: couvertValue,
-        total,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        customerName: activeTableSession.customerName,
-        customerPhone: activeTableSession.customerPhone
+        createdBy: userProfile && userProfile.role === 'waiter' ? 'waiter' : 'customer',
+        waiterId: userProfile && userProfile.role === 'waiter' ? userProfile.id : (activeTableSession.waiterId || null),
+        waiterName: userProfile && userProfile.role === 'waiter' ? userProfile.name : (activeTableSession.waiterName || null)
       };
 
-      // Set waiter tracking properties dynamically
-      if (userProfile && userProfile.role === 'waiter') {
-        newOrder.createdBy = 'waiter';
-        newOrder.waiterId = userProfile.id;
-        newOrder.waiterName = userProfile.name;
-      } else {
-        newOrder.createdBy = 'customer';
-        if (activeTableSession.waiterId) {
-          newOrder.waiterId = activeTableSession.waiterId;
-          newOrder.waiterName = activeTableSession.waiterName;
-        }
-      }
-
-      await setDoc(orderRef, newOrder);
-
-      // Record in table session history
-      try {
-        const sessionDocRef = doc(db, 'tableSessions', activeTableSession.id);
-        await updateDoc(sessionDocRef, {
-          history: arrayUnion({
-            timestamp: new Date().toISOString(),
-            action: 'Pedido Realizado',
-            userType: newOrder.createdBy === 'waiter' ? 'waiter' : 'customer',
-            userName: newOrder.createdBy === 'waiter' ? (newOrder.waiterName || 'Garçom') : activeTableSession.customerName,
-            details: `Realizou o pedido #${orderRef.id.substring(0, 5).toUpperCase()} no total de R$ ${total.toFixed(2)}.`
-          })
-        });
-      } catch (historyErr) {
-        console.error('Failed to append to history', historyErr);
-      }
-
-      // Create notification
-      await addDoc(collection(db, 'notifications'), {
-        restaurantId: restaurant.id,
-        type: 'new_order',
-        message: `Novo pedido de R$ ${total.toFixed(2)} para a Mesa ${activeTableSession.tableNumber}`,
-        status: 'unread',
-        referenceId: orderRef.id,
-        tableNumber: activeTableSession.tableNumber,
-        createdAt: new Date().toISOString()
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
 
-      // Update table status to occupied
-      const tableRef = doc(db, 'tables', activeTableSession.tableId);
-      await updateDoc(tableRef, { status: 'occupied' });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Falha ao enviar pedido');
+      }
 
       setCart([]);
-    } catch (err) {
-      console.error(err);
-      throw new Error('Falha ao enviar pedido');
+      return result;
+    } catch (err: any) {
+      console.error('[checkoutCart Error]', err);
+      throw new Error(err.message || 'Falha ao enviar pedido');
     } finally {
       setLoading(false);
     }
+  };
+
+  const sendOrder = async () => {
+    return checkoutCart(cart);
   };
 
   const callWaiter = async (reason: 'water' | 'napkin' | 'service' | 'bill' | 'other') => {

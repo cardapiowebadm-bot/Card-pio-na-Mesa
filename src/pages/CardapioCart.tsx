@@ -58,7 +58,7 @@ export default function CardapioCart() {
   };
 
   const handlePlaceOrder = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || loading) return;
     setLoading(true);
     try {
       // Map notes to cart items for the context
@@ -73,9 +73,9 @@ export default function CardapioCart() {
         duration: 3000
       });
       navigate(`/menu/${restaurantId}/orders`);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      toast.error('Erro ao processar pedido. Tente novamente.');
+      toast.error(e.message || 'Erro ao processar pedido. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -227,8 +227,14 @@ export default function CardapioCart() {
         disabled={loading}
         className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm py-3.5 rounded-2xl flex justify-center items-center gap-2 shadow-lg transition-all disabled:opacity-50"
       >
-        <span>Enviar Pedido para Cozinha</span>
-        <ArrowRight className="w-4 h-4" />
+        {loading ? (
+          <span>Enviando pedido para a cozinha...</span>
+        ) : (
+          <>
+            <span>Enviar Pedido para Cozinha</span>
+            <ArrowRight className="w-4 h-4" />
+          </>
+        )}
       </button>
 
     </div>

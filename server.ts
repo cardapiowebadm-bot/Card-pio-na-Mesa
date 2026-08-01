@@ -3,6 +3,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { adminDb } from './src/services/firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { 
   StripeService, 
   StripeCustomerService, 
@@ -368,6 +370,223 @@ Escreva de forma atraente, profissional e objetiva em Português do Brasil.`;
   } catch (error: any) {
     console.error("AI Suggest Promotions Error:", error);
     res.status(500).json({ error: error.message || 'Erro ao sugerir promoções.' });
+  }
+});
+
+// --- ENDPOINT PARA CRIAÇÃO E ENVIO DE PEDIDOS (SERVER-SIDE VIA FIREBASE ADMIN) ---
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { restaurantId, tableSessionId, items, createdBy, waiterId, waiterName } = req.body;
+
+    const cleanRestaurantId = String(restaurantId || '').trim();
+    const cleanTableSessionId = String(tableSessionId || '').trim();
+
+    if (!cleanRestaurantId) {
+      return res.status(400).json({ success: false, error: 'ID do restaurante não informado.' });
+    }
+    if (!cleanTableSessionId) {
+      return res.status(400).json({ success: false, error: 'Sessão da mesa não informada.' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'O carrinho está vazio.' });
+    }
+
+    // 1. Validar existência do Restaurante e obter configurações de taxas
+    const restDoc = await adminDb.collection('restaurants').doc(cleanRestaurantId).get();
+    if (!restDoc.exists) {
+      return res.status(400).json({ success: false, error: 'Restaurante não encontrado.' });
+    }
+    const restaurantData = restDoc.data() || {};
+
+    // 2. Validar existência e status da Sessão da Mesa
+    const sessionDoc = await adminDb.collection('tableSessions').doc(cleanTableSessionId).get();
+    if (!sessionDoc.exists) {
+      return res.status(400).json({ success: false, error: 'Sessão da mesa não encontrada.' });
+    }
+    const sessionData = sessionDoc.data() || {};
+
+    if (sessionData.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'A sessão desta mesa não está ativa.' });
+    }
+
+    const tableId = sessionData.tableId || '';
+    const tableNumber = sessionData.tableNumber || 0;
+    const customerName = sessionData.customerName || 'Cliente';
+    const customerPhone = sessionData.customerPhone || '';
+
+    // Consultar pedidos anteriores na mesma sessão para evitar cobrança duplicada de taxas fixas
+    const sessionOrdersSnap = await adminDb
+      .collection('orders')
+      .where('tableSessionId', '==', cleanTableSessionId)
+      .get();
+
+    const hasServiceTaxBefore = sessionOrdersSnap.docs.some(
+      doc => (doc.data().serviceTax || 0) > 0
+    );
+    const hasCouvertBefore = sessionOrdersSnap.docs.some(
+      doc => (doc.data().couvert || 0) > 0
+    );
+
+    // 3. Validar produtos existentes, ativos, quantidades e RE-CONSULTAR PREÇOS NO FIRESTORE
+    let serverSubtotal = 0;
+    const validatedItems = [];
+
+    for (const item of items) {
+      const productId = String(item.productId || '').trim();
+      const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      const notes = String(item.notes || '').trim().substring(0, 300);
+
+      if (!productId) {
+        return res.status(400).json({ success: false, error: 'ID de produto inválido no carrinho.' });
+      }
+
+      const prodDoc = await adminDb.collection('products').doc(productId).get();
+      if (!prodDoc.exists) {
+        return res.status(400).json({ success: false, error: `Produto não encontrado no cardápio (ID: ${productId}).` });
+      }
+
+      const prodData = prodDoc.data() || {};
+
+      if (prodData.available === false) {
+        return res.status(400).json({
+          success: false,
+          error: `O produto "${prodData.name || 'solicitado'}" não está disponível no momento.`
+        });
+      }
+
+      // Preço oficial do Firestore (sem confiar no preço enviado pelo navegador)
+      let unitPrice = Number(prodData.price) || 0;
+      if (prodData.onSale && typeof prodData.salePrice === 'number' && prodData.salePrice >= 0) {
+        unitPrice = prodData.salePrice;
+      }
+
+      const itemSubtotal = unitPrice * quantity;
+      serverSubtotal += itemSubtotal;
+
+      validatedItems.push({
+        productId,
+        name: prodData.name || 'Produto',
+        price: unitPrice,
+        quantity,
+        notes
+      });
+    }
+
+    // 4. Calcular Taxa de Serviço e Couvert no Servidor
+    let serviceTaxValue = 0;
+    if (restaurantData.serviceTaxEnabled !== false) {
+      const taxType = restaurantData.serviceTaxType || 'percentage';
+      const taxVal = restaurantData.serviceTaxValue !== undefined ? Number(restaurantData.serviceTaxValue) : 10;
+      if (taxType === 'percentage') {
+        serviceTaxValue = (taxVal / 100) * serverSubtotal;
+      } else {
+        serviceTaxValue = hasServiceTaxBefore ? 0 : taxVal;
+      }
+    }
+
+    let couvertValue = 0;
+    if (restaurantData.couvertEnabled) {
+      const couvertType = restaurantData.couvertType || 'fixed';
+      const couvertVal = restaurantData.couvertValue !== undefined ? Number(restaurantData.couvertValue) : 0;
+      if (couvertType === 'percentage') {
+        couvertValue = (couvertVal / 100) * serverSubtotal;
+      } else {
+        couvertValue = hasCouvertBefore ? 0 : couvertVal;
+      }
+    }
+
+    const serverTotal = serverSubtotal + serviceTaxValue + couvertValue;
+
+    // 5. Gravar Pedido no Firestore usando firebaseAdmin
+    const nowIso = new Date().toISOString();
+    const orderRef = adminDb.collection('orders').doc();
+
+    const orderCreatedBy = createdBy === 'waiter' ? 'waiter' : 'customer';
+    const effectiveWaiterId = waiterId || sessionData.waiterId || null;
+    const effectiveWaiterName = waiterName || sessionData.waiterName || null;
+
+    const newOrder: Record<string, any> = {
+      id: orderRef.id,
+      tableSessionId: cleanTableSessionId,
+      tableId,
+      tableNumber,
+      restaurantId: cleanRestaurantId,
+      items: validatedItems,
+      subtotal: serverSubtotal,
+      serviceTax: serviceTaxValue,
+      couvert: couvertValue,
+      total: serverTotal,
+      status: 'pending',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      customerName,
+      customerPhone,
+      createdBy: orderCreatedBy
+    };
+
+    if (effectiveWaiterId) newOrder.waiterId = effectiveWaiterId;
+    if (effectiveWaiterName) newOrder.waiterName = effectiveWaiterName;
+
+    await orderRef.set(newOrder);
+
+    // 6. Atualizar Histórico na Sessão da Mesa (Server-Side)
+    try {
+      const orderCode = orderRef.id.substring(0, 5).toUpperCase();
+      const actionUserType = orderCreatedBy === 'waiter' ? 'waiter' : 'customer';
+      const actionUserName = orderCreatedBy === 'waiter' ? (effectiveWaiterName || 'Garçom') : customerName;
+
+      await adminDb.collection('tableSessions').doc(cleanTableSessionId).update({
+        history: FieldValue.arrayUnion({
+          timestamp: nowIso,
+          action: 'Pedido Realizado',
+          userType: actionUserType,
+          userName: actionUserName,
+          details: `Realizou o pedido #${orderCode} no total de R$ ${serverTotal.toFixed(2)}.`
+        })
+      });
+    } catch (histErr: any) {
+      console.warn('[POST /api/orders] Aviso ao atualizar histórico da sessão:', histErr.message);
+    }
+
+    // 7. Criar Notificação para a Cozinha/Painel (Server-Side)
+    try {
+      await adminDb.collection('notifications').add({
+        restaurantId: cleanRestaurantId,
+        type: 'new_order',
+        message: `Novo pedido de R$ ${serverTotal.toFixed(2)} para a Mesa ${tableNumber}`,
+        status: 'unread',
+        referenceId: orderRef.id,
+        tableNumber,
+        createdAt: nowIso
+      });
+    } catch (notifErr: any) {
+      console.warn('[POST /api/orders] Aviso ao criar notificação:', notifErr.message);
+    }
+
+    // 8. Atualizar Status da Mesa para Ocupada (Server-Side)
+    if (tableId) {
+      try {
+        await adminDb.collection('tables').doc(tableId).update({
+          status: 'occupied'
+        });
+      } catch (tblErr: any) {
+        console.warn('[POST /api/orders] Aviso ao atualizar mesa:', tblErr.message);
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      orderId: orderRef.id,
+      total: serverTotal,
+      message: 'Pedido enviado com sucesso para a cozinha!'
+    });
+  } catch (error: any) {
+    console.error('[POST /api/orders] ERRO CRÍTICO no envio de pedido:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno ao processar e salvar pedido no servidor.',
+      details: error.message || 'Erro desconhecido.'
+    });
   }
 });
 
