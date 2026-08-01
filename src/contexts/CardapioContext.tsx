@@ -561,6 +561,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     } catch (err) {
       console.error("Error calling waiter", err);
+      throw err;
     }
   };
 
@@ -573,19 +574,6 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       await updateDoc(sessionRef, {
         paymentMethod: method,
         paymentStatus: 'pending'
-      });
-
-      // Create billing call
-      const callRef = doc(collection(db, 'waiterCalls'));
-      await setDoc(callRef, {
-        id: callRef.id,
-        tableSessionId: activeTableSession.id,
-        tableId: activeTableSession.tableId,
-        tableNumber: activeTableSession.tableNumber,
-        restaurantId: restaurant.id,
-        reason: 'bill',
-        status: 'pending',
-        createdAt: new Date().toISOString()
       });
 
       // Create notification
@@ -609,6 +597,7 @@ export const CardapioProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     } catch (err) {
       console.error("Error requesting payment", err);
+      throw err;
     }
   };
 

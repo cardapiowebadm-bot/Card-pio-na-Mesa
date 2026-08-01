@@ -212,19 +212,19 @@ export default function CardapioLayout({ children }: { children: React.ReactNode
 
             <div className="space-y-2">
               {[
-                { reason: 'Fazer pedido', desc: 'Preciso de ajuda com o cardápio' },
-                { reason: 'Trazer talheres', desc: 'Talher adicional ou copos' },
-                { reason: 'Limpar mesa', desc: 'Remover pratos ou sujeira' },
-                { reason: 'Outro assunto', desc: 'Outras solicitações diversas' }
+                { label: 'Fazer pedido', desc: 'Preciso de ajuda com o cardápio', reason: 'service' },
+                { label: 'Trazer talheres', desc: 'Talher adicional ou copos', reason: 'service' },
+                { label: 'Limpar mesa', desc: 'Remover pratos ou sujeira', reason: 'service' },
+                { label: 'Outro assunto', desc: 'Outras solicitações diversas', reason: 'other' }
               ].map((opt) => (
                 <button
-                  key={opt.reason}
+                  key={opt.label}
                   onClick={() => handleCallWaiter(opt.reason)}
                   disabled={calling}
                   className="w-full text-left p-4 bg-slate-50 hover:bg-rose-50 border border-slate-100 hover:border-rose-100 rounded-2xl flex items-center justify-between transition-all group"
                 >
                   <div>
-                    <h4 className="font-bold text-sm text-slate-800 group-hover:text-rose-700">{opt.reason}</h4>
+                    <h4 className="font-bold text-sm text-slate-800 group-hover:text-rose-700">{opt.label}</h4>
                     <p className="text-xs text-slate-400 mt-0.5">{opt.desc}</p>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-rose-500" />
